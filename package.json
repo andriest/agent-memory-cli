@@ -1,0 +1,39 @@
+{
+  "name": "shared-agent-memory",
+  "version": "0.2.0",
+  "description": "Shared, git-tracked project memory for coding agents (Claude Code, Gemini Antigravity). No server, no database, no API keys.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andriest/agent-memory-cli.git"
+  },
+  "homepage": "https://github.com/andriest/agent-memory-cli#readme",
+  "bugs": {
+    "url": "https://github.com/andriest/agent-memory-cli/issues"
+  },
+  "type": "module",
+  "bin": {
+    "agent-memory": "bin/agent-memory.mjs",
+    "shared-memory": "bin/agent-memory.mjs",
+    "amem": "bin/agent-memory.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "keywords": [
+    "claude-code",
+    "antigravity",
+    "gemini",
+    "agents",
+    "memory",
+    "cli"
+  ],
+  "license": "MIT"
+}
