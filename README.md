@@ -160,6 +160,45 @@ git diff docs/memory                   # review, edit or delete entries, then co
   for scripts.
 - **`project.md` is not touched.** It stays curated by hand. Promote stable facts into it
   yourself, or ask an agent to.
+- **Hand edits are protected.** Each imported entry records a `hash:` of its own text. An entry
+  you edited after importing is never overwritten by `--update` or removed by `--prune`.
+
+### Repositories where each branch has its own rules
+
+`docs/memory/` lives in the repository, so every branch already has its own memory. Claude
+Code's auto memory, however, is one directory for the whole repository, so it mixes the
+rules of every branch. Use `--branch` to import only what belongs to the current branch:
+
+```sh
+shared-memory import claude --branch current                  # plan, with a reason per memory
+shared-memory import claude --branch current --prune --apply  # also remove earlier imports
+                                                              # that belong to other branches
+```
+
+A memory is **kept** when it mentions this branch, mentions no branch at all (a general rule),
+or mentions several branches including this one (a rule that lists them all). It is
+**skipped** when it only mentions other branches. An explicit marker in the description or
+first line (`only on X`, `exclusively for X`, or Indonesian `KHUSUS`/`hanya` + X) overrides that and assigns the
+memory to X alone.
+
+Branches are recognised by name from `git branch` (local and remote), and by their last path
+segment (`borealis` for `brand/borealis`). Common names such as `main` only count in a branch
+context (`` `main` ``, "branch main"). Notes often refer to a branch by another name, so
+list aliases in `.agent-memory.json`:
+
+```json
+"branches": {
+  "main": ["Core Site"],
+  "brand/aurora": ["Aurora Shop"],
+  "brand/borealis": ["Borealis Store"]
+}
+```
+
+Matching is done on the text of each memory, so review the reasons in the plan before
+`--apply`. A general memory that happens to name another branch's channel will be skipped;
+add it back by hand, or re-run without `--branch` and delete what you do not want.
+`--prune` only removes entries that carry a `source: claude-memory/…` marker and were not
+edited by hand.
 
 After importing, Claude Code still keeps writing its private memory. To make the shared memory
 the only one for the project, add `"autoMemoryEnabled": false` to `.claude/settings.json`.
@@ -200,7 +239,9 @@ rejected with a clear message; unknown keys only produce a warning.
     "patterns": [],                      // extra regexes to refuse, e.g. ["\\bCUST-\\d{6}\\b"]
     "allow": [],                         // literals known to be safe (false positives)
     "excludePaths": [".env", ".env.*", "*.pem", "*.key", "*.p12", "secrets/**", "credentials*"]
-  }
+  },
+  "branches": {}                         // branch aliases for `import claude --branch`, e.g.
+                                         // { "brand/aurora": ["Aurora Shop"] }
 }
 ```
 
@@ -262,7 +303,7 @@ working tree. Anything that should be shared across machines belongs in a handof
 ## Development
 
 ```sh
-npm test       # node:test, no dependencies (31 tests)
+npm test       # node:test, no dependencies (35 tests)
 ```
 
 Code layout:

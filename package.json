@@ -1,6 +1,6 @@
 {
   "name": "shared-agent-memory",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Shared, git-tracked project memory for coding agents (Claude Code, Gemini Antigravity). No server, no database, no API keys.",
   "repository": {
     "type": "git",
@@ -19,7 +19,8 @@
   "files": [
     "bin",
     "src",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "test": "node --test"
@@ -35,5 +36,6 @@
     "memory",
     "cli"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "author": "andrie"
 }

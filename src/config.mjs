@@ -35,6 +35,9 @@ export const DEFAULT_CONFIG = {
     allow: [],
     excludePaths: ['.env', '.env.*', '*.pem', '*.key', '*.p12', 'secrets/**', 'credentials*'],
   },
+  // Other names a branch goes by in notes, e.g. { "brand/aurora": ["Aurora Shop"] }.
+  // Used by `import claude --branch` to tell which memories belong to which branch.
+  branches: {},
 };
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -79,6 +82,10 @@ const SCHEMA = {
   'sensitive.patterns': CHECKS['regex[]'],
   'sensitive.allow': CHECKS['string[]'],
   'sensitive.excludePaths': CHECKS['string[]'],
+  branches: [
+    (v) => isObject(v) && Object.values(v).every((a) => CHECKS['string[]'][0](a)),
+    'an object mapping branch names to arrays of aliases',
+  ],
 };
 
 const GROUPS = new Set(Object.keys(SCHEMA).filter((k) => k.includes('.')).map((k) => k.split('.')[0]));

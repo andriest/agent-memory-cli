@@ -11,6 +11,25 @@ export function isRepo(root) {
   return git(root, ['rev-parse', '--is-inside-work-tree'])?.trim() === 'true';
 }
 
+export function currentBranch(root) {
+  return git(root, ['branch', '--show-current'])?.trim() || null;
+}
+
+// Local and remote-tracking branch names, with the remote prefix removed.
+export function listBranches(root) {
+  const remotes = (git(root, ['remote']) ?? '').split('\n').filter(Boolean);
+  const refs = (git(root, ['for-each-ref', '--format=%(refname:short)', 'refs/heads', 'refs/remotes']) ?? '').split('\n');
+  const names = refs
+    .map((r) => r.trim())
+    .filter(Boolean)
+    .map((r) => {
+      const remote = remotes.find((x) => r.startsWith(`${x}/`));
+      return remote ? r.slice(remote.length + 1) : r;
+    })
+    .filter((r) => r !== 'HEAD' && !remotes.includes(r));
+  return [...new Set(names)];
+}
+
 // The main worktree's root (the same as `root` unless `root` is a linked worktree).
 export function mainWorktreeRoot(root) {
   const common = git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir'])?.trim();

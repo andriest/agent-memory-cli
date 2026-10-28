@@ -22,7 +22,8 @@ import {
   writeHandoff,
 } from './memory.mjs';
 import { onSessionEnd, onSessionStart, onStop, runTests } from './session.mjs';
-import { CLAUDE_TYPES, applyImport, findClaudeMemoryDir, planImport, readClaudeMemories } from './importers/claude.mjs';
+import { CLAUDE_TYPES, applyImport, branchFilter, findClaudeMemoryDir, planImport, readClaudeMemories } from './importers/claude.mjs';
+import { currentBranch, listBranches } from './git.mjs';
 
 const VERSION = JSON.parse(readText(new URL('../package.json', import.meta.url))).version;
 
@@ -54,9 +55,12 @@ Daily use (by agents or humans)
   status                  Last session snapshot and last test run
 
 Migration
-  import claude [--from <dir>] [--types feedback,project,reference] [--update] [--apply] [--json]
+  import claude [--from <dir>] [--types feedback,project,reference] [--branch <name>|current]
+                [--prune] [--update] [--apply] [--json]
                           Import this project's Claude Code auto memory into the shared
-                          memory (one-way). Shows the plan only, unless --apply is given
+                          memory (one-way). Shows the plan only, unless --apply is given.
+                          --branch keeps memories about that branch or no branch; --prune
+                          removes earlier imports the filters now exclude
 
 Internal
   hook <claude|antigravity> <session-start|stop|session-end>
@@ -96,6 +100,8 @@ const OPTIONS = {
   types: { type: 'string' },
   apply: { type: 'boolean' },
   update: { type: 'boolean' },
+  branch: { type: 'string' },
+  prune: { type: 'boolean' },
   'max-chars': { type: 'string' },
   recent: { type: 'string' },
   all: { type: 'boolean' },
@@ -307,28 +313,47 @@ const commands = {
     const unknown = types?.filter((t) => !CLAUDE_TYPES.includes(t)) ?? [];
     if (unknown.length) throw new UsageError(`unknown memory type(s): ${unknown.join(', ')} (use: feedback, project, reference)`);
 
+    if (values.prune && !values.branch && !values.types) throw new UsageError('--prune needs --branch or --types to know what to remove');
+
+    let branch = null;
+    if (values.branch !== undefined) {
+      const name = ['current', 'HEAD', '.'].includes(values.branch) ? currentBranch(project.root) : values.branch.trim();
+      if (!name) throw new UsageError('--branch current: not on a branch (detached HEAD or not a git repository)');
+      const known = listBranches(project.root);
+      if (!known.includes(name)) err(`agent-memory: warning: branch "${name}" not found in this repository`);
+      branch = branchFilter(name, known, project.config.branches);
+    }
+
     const { dir, why } = findClaudeMemoryDir(project.root, values.from);
-    const plan = planImport(project, readClaudeMemories(dir), { types, update: values.update });
+    const plan = planImport(project, readClaudeMemories(dir), { types, update: values.update, branch, prune: values.prune });
     const count = (action) => plan.filter((p) => p.action === action).length;
     if (values.json) {
-      out(JSON.stringify({ source: dir, plan: plan.map(({ text, ...p }) => p) }, null, 2));
+      out(JSON.stringify({ source: dir, branch: branch?.name ?? null, plan: plan.map(({ text, ...p }) => p) }, null, 2));
       if (!values.apply) return;
     } else {
-      out(`Claude Code memory: ${dir}  (${why}, ${plan.length} file(s))\n`);
-      const width = { action: 6, key: 9 };
+      out(`Claude Code memory: ${dir}  (${why}, ${plan.length} file(s))`);
+      if (branch) {
+        const aliases = project.config.branches[branch.name] ?? [];
+        out(`Branch filter: ${branch.name}${aliases.length ? ` (aliases: ${aliases.join(', ')})` : ''}; other branches: ${branch.others.map((o) => o.name).join(', ') || '(none)'}`);
+      }
+      out('');
       for (const p of plan) {
         const where = p.key ? FILES[p.key].replace('.md', '') : '-';
-        const what = p.title ? `"${p.title}"` : '';
-        out(`  ${p.action.padEnd(width.action)}  ${where.padEnd(width.key)}  ${p.type.padEnd(9)}  ${p.file}${what ? `  → ${what}` : ''}${p.reason ? `  (${p.reason})` : ''}`);
+        const what = p.title ? `  → "${p.title}"` : '';
+        const note = p.reason ? `  (${p.reason})` : p.scope ? `  [${p.scope}]` : '';
+        out(`  ${p.action.padEnd(6)}  ${where.padEnd(9)}  ${p.type.padEnd(9)}  ${p.file}${what}${note}`);
       }
-      out(`\nPlan: ${count('add')} to add, ${count('update')} to update, ${count('skip')} skipped.`);
+      const removing = count('remove') ? `, ${count('remove')} to remove` : '';
+      out(`\nPlan: ${count('add')} to add, ${count('update')} to update${removing}, ${count('skip')} skipped.`);
+      if (branch) out('Branch scope is matched from the text of each memory; check the reasons above before applying.');
     }
     if (!values.apply) {
       out('Nothing written. Re-run with --apply to import.');
       return;
     }
-    const written = applyImport(project, plan);
-    out(`Imported ${written} entr${written === 1 ? 'y' : 'ies'} into ${project.relDir}/. Review with \`git diff ${project.relDir}\` before committing.`);
+    const done = applyImport(project, plan);
+    const parts = [`${done.add} added`, `${done.update} updated`, ...(done.remove ? [`${done.remove} removed`] : [])];
+    out(`Import applied to ${project.relDir}/: ${parts.join(', ')}. Review with \`git diff ${project.relDir}\` before committing.`);
     out('Claude Code keeps writing its private memory; to make the shared memory the only one for this project,');
     out('add "autoMemoryEnabled": false to .claude/settings.json.');
   },
