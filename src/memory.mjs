@@ -7,6 +7,7 @@ import {
   formatEntry,
   normalizeTitle,
   parseEntries,
+  removeBlock,
   renderEntry,
   stripComments,
   truncate,
@@ -106,7 +107,7 @@ export function scaffold(project) {
     results.push({ file, action: writeIfChanged(file, text) });
   };
   add('README.md', memoryReadme(project.relDir), { overwrite: true });
-  add(FILES.project, PROJECT_TEMPLATE);
+  if (project.config.context.sections.includes('project')) add(FILES.project, PROJECT_TEMPLATE);
   add(FILES.decisions, DECISIONS_TEMPLATE);
   add(FILES.learnings, LEARNINGS_TEMPLATE);
   add(FILES.handoff, HANDOFF_TEMPLATE);
@@ -370,9 +371,38 @@ function statusSection(project, budget) {
   return parts.length ? truncate(parts.join('\n\n'), budget, `${project.relDir}/status.md`) : '';
 }
 
+// A project instruction file without our managed block, comments and `@AGENTS.md` imports.
+function ownInstructions(project, name) {
+  const text = stripComments(removeBlock(readText(path.join(project.root, name))));
+  return text
+    .split(/\r?\n/)
+    .filter((l) => !/^\s*@(\.\/)?AGENTS\.md\s*$/.test(l))
+    .join('\n')
+    .trim();
+}
+
+// Instruction files each agent does not load by itself: Antigravity reads AGENTS.md and
+// GEMINI.md but not CLAUDE.md; Claude Code reads CLAUDE.md (which imports AGENTS.md) but not
+// GEMINI.md.
+const FOREIGN_INSTRUCTIONS = { antigravity: ['CLAUDE.md'], claude: ['GEMINI.md'] };
+
+function agentInstructions(project, agent) {
+  if (!project.config.context.agentInstructions) return [];
+  return (FOREIGN_INSTRUCTIONS[agent] ?? [])
+    .map((name) => ({ name, text: ownInstructions(project, name) }))
+    .filter((f) => f.text);
+}
+
+// Whether the instruction files already describe the project, which makes an empty
+// project.md expected rather than something to fill in.
+function hasProjectInstructions(project) {
+  return ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md'].some((name) => ownInstructions(project, name).length > 200);
+}
+
 // The context summary injected at session start, built from `context.sections` in order
-// and kept within `context.maxChars`.
-export function buildContext(project, { maxChars, recent } = {}) {
+// and kept within `context.maxChars`. `agent` adds the instruction files that agent would
+// otherwise not see.
+export function buildContext(project, { maxChars, recent, agent } = {}) {
   requireMemory(project);
   const d = project.relDir;
   const cfg = project.config.context;
@@ -395,9 +425,12 @@ export function buildContext(project, { maxChars, recent } = {}) {
     status: () => ({ title: 'Status', render: (b) => statusSection(project, b), optional: true }),
     project: () => ({
       title: 'Project',
+      optional: hasProjectInstructions(project),
       render: (b) =>
         truncate(projectSummary(project), b, `${d}/project.md`) ||
-        `_${d}/project.md is not filled in yet — add the overview, stack, commands, architecture and conventions as you learn them._`,
+        (hasProjectInstructions(project)
+          ? ''
+          : `_${d}/project.md is not filled in yet — add the overview, stack, commands, architecture and conventions as you learn them._`),
     }),
     decisions: () => {
       const { all, shown } = recentOf('decisions');
@@ -427,6 +460,21 @@ export function buildContext(project, { maxChars, recent } = {}) {
   };
 
   const sections = cfg.sections.map((name) => renderers[name]());
+  const foreign = agentInstructions(project, agent);
+  if (foreign.length) {
+    // Right after the handoff and status: these are standing project instructions.
+    const at = sections.findIndex((s) => s.title !== 'Latest handoff' && s.title !== 'Status');
+    sections.splice(at === -1 ? sections.length : at, 0, {
+      title: `Project instructions from ${foreign.map((f) => f.name).join(', ')} (they apply to you too)`,
+      render: (b) => {
+        const each = Math.max(300, Math.floor(b / foreign.length) - 20);
+        // Demote their headings so they nest under this section.
+        return foreign
+          .map((f) => `### ${f.name}\n${truncate(f.text.replace(/^#{1,3}(?=\s)/gm, '####'), each, f.name)}`)
+          .join('\n\n');
+      },
+    });
+  }
   const header = contextHeader(d);
   let remaining = maxChars - header.length;
   const parts = [header];

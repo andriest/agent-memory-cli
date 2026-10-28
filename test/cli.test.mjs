@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const BIN = fileURLToPath(new URL('../bin/agent-memory.mjs', import.meta.url));
+const EMPTY_CLAUDE_CONFIG = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-config-empty-'));
 
 function write(dir, files) {
   for (const [rel, text] of Object.entries(files)) {
@@ -30,6 +31,8 @@ function commitAll(dir) {
 function run(cwd, args, input) {
   const env = { ...process.env };
   for (const k of ['CLAUDECODE', 'AGENT_MEMORY_AGENT', 'AGENT_MEMORY_DIR', 'CLAUDE_PROJECT_DIR']) delete env[k];
+  // Never read the developer's real Claude Code memory.
+  env.CLAUDE_CONFIG_DIR = EMPTY_CLAUDE_CONFIG;
   const r = spawnSync(process.execPath, [BIN, ...args], { cwd, input, encoding: 'utf8', env });
   return { code: r.status, out: r.stdout, err: r.stderr };
 }

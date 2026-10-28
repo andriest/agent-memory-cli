@@ -44,41 +44,71 @@ git clone https://github.com/andriest/agent-memory-cli.git ~/tools/agent-memory-
 
 Three equivalent command names are installed: `shared-memory`, `agent-memory` and `amem`.
 
-**2. A repository, one command per project.**
+**2. A repository: one command, once.**
 
 ```sh
 shared-memory install .          # or: shared-memory install ~/projects/my-app
-shared-memory doctor .
+```
+
+That is the whole setup. Then start `claude` or `agy` in the project: the shared memory, the
+project instructions and the previous handoff load automatically. Review the changes and
+commit them so the setup travels with the repository:
+
+```sh
 git add docs/memory .agent-memory.json AGENTS.md CLAUDE.md .claude .agents
 git commit -m "Add shared agent memory"
 ```
 
+On the first run `install` does everything:
+
+1. **Creates the shared memory** in `docs/memory/` and the config `.agent-memory.json`.
+2. **Wires both agents to it**: the memory protocol in `AGENTS.md`, session hooks, and the
+   `/memory-handoff` and `/memory-save` commands for each agent.
+3. **Connects their instruction files** without moving your content. Claude Code skips
+   `AGENTS.md` whenever a `CLAUDE.md` exists, so `CLAUDE.md` gets an `@AGENTS.md` import.
+   Antigravity does not read `CLAUDE.md`, so its session-start hook includes `CLAUDE.md`'s own
+   instructions; Claude's hook does the same for `GEMINI.md`.
+4. **Imports Claude Code's private auto memory** for this project (personal `user` memories and
+   anything that looks like a secret are skipped). This happens once: the time is recorded as
+   `claude.importedAt`, so later installs never re-add entries you deleted.
+5. **Turns off Claude Code's private auto memory** for the project (`"autoMemoryEnabled": false`),
+   so new knowledge goes to the shared memory. An explicit value you already set is kept.
+
+For a repository where **each branch has its own rules**, run `shared-memory install . --per-branch`
+on each branch, after listing branch aliases (see
+[Repositories where each branch has its own rules](#repositories-where-each-branch-has-its-own-rules)).
+Only that branch's memories are imported, and the choice is saved in that branch's config.
+
 `install` is **idempotent**. It is safe to re-run, for example after upgrading the tool, and it
-**never overwrites memory content** or your own hooks. It creates:
+**never overwrites memory content** or your own hooks and settings. `shared-memory doctor .`
+checks the result. Files it touches:
 
 | File | For | Contents |
 | --- | --- | --- |
 | `.agent-memory.json` | all | Project configuration (see [Configuration](#configuration)) |
-| `docs/memory/project.md` | all | Stable context: overview, stack, commands, architecture, conventions |
+| `docs/memory/project.md` | all | Optional curated context: overview, stack, commands, architecture, conventions. Not needed when `CLAUDE.md`/`AGENTS.md` already describe the project |
 | `docs/memory/decisions.md` | all | Decisions and why they were made (newest at the bottom) |
 | `docs/memory/learnings.md` | all | Gotchas, root causes, environment quirks |
 | `docs/memory/handoff.md` | all | Handoffs between sessions, **newest first** |
 | `docs/memory/status.md` | all | Local snapshot: last session and last test run (*gitignored*) |
-| `CLAUDE.md` | Claude Code | Memory protocol block (between markers; the rest of the file is untouched) |
-| `.claude/settings.json` | Claude Code | Project hooks: `SessionStart`, `Stop`, `SessionEnd` |
+| `CLAUDE.md` | Claude Code | An `@AGENTS.md` import between markers (the rest of the file is untouched) |
+| `.claude/settings.json` | Claude Code | Project hooks `SessionStart`, `Stop`, `SessionEnd`; `"autoMemoryEnabled": false` |
 | `.claude/commands/memory-{handoff,save}.md` | Claude Code | `/memory-handoff`, `/memory-save` |
-| `AGENTS.md` | Antigravity (+ other agents) | The same memory protocol block |
+| `AGENTS.md` | Antigravity (+ other agents) | The memory protocol block |
 | `.agents/hooks.json` | Antigravity IDE & CLI | Workspace hooks: `SessionStart`, `Stop` |
 | `.agents/workflows/memory-{handoff,save}.md` | Antigravity | `/memory-handoff`, `/memory-save` |
 
 Options:
 
-- `--agents claude` or `--agents antigravity` installs a single agent. The choice is saved in the config.
+- `--agents claude` or `--agents antigravity` installs a single agent. The choice is saved in the
+  config. With Claude Code alone, `CLAUDE.md` gets the protocol itself instead of an import.
+- `--per-branch` imports only the current branch's Claude memories (see above).
+- `--skip-import` skips the Claude memory import. `--memory-only` creates the memory without any
+  agent integration.
 - `--dir .memory` uses a different memory location.
-- `--memory-only` creates the memory without any agent integration.
 
-`uninstall` removes the integrations and restores your files exactly as they were.
-Memory files and the config are kept.
+`uninstall` removes the integrations, including the `autoMemoryEnabled` setting it added, and
+restores your files exactly as they were. Memory files and the config are kept.
 
 ## Session automation
 
@@ -223,7 +253,8 @@ rejected with a clear message; unknown keys only produce a warning.
     "maxChars": 8000,                    // injected context budget (Claude truncates hook output over 10,000)
     "recent": 5,                         // number of recent decisions/learnings
     "sections": ["handoff", "status", "project", "decisions", "learnings", "files"],  // selection & order
-    "files": []                          // extra repository files, e.g. ["docs/architecture.md"]
+    "files": [],                         // extra repository files, e.g. ["docs/architecture.md"]
+    "agentInstructions": true            // give each agent the instruction file it does not read itself
   },
   "handoff": {
     "keep": 10,                          // handoffs kept in handoff.md; the rest go to archive/handoffs.md
@@ -239,6 +270,12 @@ rejected with a clear message; unknown keys only produce a warning.
     "patterns": [],                      // extra regexes to refuse, e.g. ["\\bCUST-\\d{6}\\b"]
     "allow": [],                         // literals known to be safe (false positives)
     "excludePaths": [".env", ".env.*", "*.pem", "*.key", "*.p12", "secrets/**", "credentials*"]
+  },
+  "claude": {
+    "disableAutoMemory": true,           // install sets "autoMemoryEnabled": false
+    "importOnInstall": "auto"            // first install imports Claude memory: "auto" (per branch
+                                         // when `branches` is set), "all", "branch" or "off";
+                                         // `importedAt` is recorded afterwards
   },
   "branches": {}                         // branch aliases for `import claude --branch`, e.g.
                                          // { "brand/aurora": ["Aurora Shop"] }
@@ -273,6 +310,10 @@ Tested on 2026-10-28 with real headless sessions (`claude -p` and `agy -p`), not
 | Antigravity CLI (`agy`) | 1.4.9 | ✅ | ✅ agent ran the tests and wrote a handoff | ✅ via `Stop` |
 | Antigravity IDE | — | not tested | not tested | not tested |
 
+Instruction files were verified the same way: Claude Code read a codeword that existed only in
+`AGENTS.md` (through the `@AGENTS.md` import inside the managed block), and Antigravity CLI read
+a codeword that existed only in `CLAUDE.md` (through its session-start hook).
+
 Notes:
 
 - **Antigravity IDE** uses the same `.agents/hooks.json` file and format according to the
@@ -303,7 +344,7 @@ working tree. Anything that should be shared across machines belongs in a handof
 ## Development
 
 ```sh
-npm test       # node:test, no dependencies (35 tests)
+npm test       # node:test, no dependencies (37 tests)
 ```
 
 Code layout:

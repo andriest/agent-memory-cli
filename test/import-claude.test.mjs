@@ -29,7 +29,7 @@ function setup(memories) {
     const r = spawnSync(process.execPath, [BIN, ...args], { cwd, encoding: 'utf8', env });
     return { code: r.status, out: r.stdout, err: r.stderr };
   };
-  run(['install', '--memory-only']);
+  run(['install', '--memory-only', '--skip-import']);
   return { repo, config, memDir, run, read: (rel) => fs.readFileSync(path.join(repo, rel), 'utf8') };
 }
 
@@ -263,4 +263,69 @@ test('hand edits are detected by hash, independent of importer changes', () => {
   const conflict = t.run(['import', 'claude', '--update', '--apply']);
   assert.match(conflict.out, /skip .* dashboard\.md .*edited here and changed in Claude memory; reconcile by hand/);
   assert.match(fs.readFileSync(file, 'utf8'), /\(moved\?\)/);
+});
+
+// --- Automatic first install --------------------------------------------------------------
+
+test('first install imports Claude memory once, turns off auto memory, and is ready to use', () => {
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agent-memory-auto-')));
+  spawnSync('git', ['init', '-q'], { cwd: repo });
+  const OWN = '# CLAUDE.md\n\n## Commands\n`make run` starts the renderer. Always run `make lint` before committing; the CI rejects unformatted code.\n\n## Architecture\n`render/` turns scripts into videos; `publish/` uploads them. Both read settings from `config.toml`.';
+  write(repo, { 'CLAUDE.md': `${OWN}\n` });
+  const config = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-config-'));
+  write(path.join(config, 'projects', encodeProjectPath(repo), 'memory'), SAMPLE);
+  const env = { ...process.env, CLAUDE_CONFIG_DIR: config };
+  for (const k of ['CLAUDECODE', 'AGENT_MEMORY_AGENT', 'AGENT_MEMORY_DIR']) delete env[k];
+  const run = (args, input) => {
+    const r = spawnSync(process.execPath, [BIN, ...args], { cwd: repo, encoding: 'utf8', env, input });
+    return { code: r.status, out: r.stdout, err: r.stderr };
+  };
+  const read = (rel) => fs.readFileSync(path.join(repo, rel), 'utf8');
+
+  const first = run(['install', '.']);
+  assert.equal(first.code, 0, first.err);
+  assert.match(first.out, /imported 3 entries from .*\(2 skipped/);
+  assert.match(first.out, /Ready\. Start `claude` or `agy`/);
+  assert.match(read('docs/memory/decisions.md'), /Always commit and push/);
+  assert.match(JSON.parse(read('.agent-memory.json')).claude.importedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(JSON.parse(read('.claude/settings.json')).autoMemoryEnabled, false);
+
+  // CLAUDE.md keeps its content and imports AGENTS.md, which carries the protocol.
+  const claudeMd = read('CLAUDE.md');
+  assert.match(claudeMd, /^# CLAUDE\.md[\s\S]*make lint[\s\S]*<!-- shared-agent-memory:start -->\n@AGENTS\.md\n<!-- shared-agent-memory:end -->\n$/);
+  assert.match(read('AGENTS.md'), /## Shared agent memory/);
+
+  // Deleting an imported entry by hand sticks: later installs do not import again.
+  write(repo, { 'docs/memory/decisions.md': '# Decisions\n' });
+  const again = run(['install', '.']);
+  assert.match(again.out, /already imported \(\d{4}-\d{2}-\d{2}\)/);
+  assert.equal(read('docs/memory/decisions.md'), '# Decisions\n');
+
+  // Antigravity sees CLAUDE.md's instructions; Claude (which loads CLAUDE.md itself) does not get them twice.
+  const ag = spawnSync(process.execPath, [BIN, 'hook', 'antigravity', 'session-start'], { cwd: os.tmpdir(), env, encoding: 'utf8', input: JSON.stringify({ workspacePaths: [repo] }) });
+  const agContext = JSON.parse(ag.stdout).injectSteps[0].systemMessage.systemMessage;
+  assert.match(agContext, /## Project instructions from CLAUDE\.md \(they apply to you too\)\n### CLAUDE\.md\n#### CLAUDE\.md\n\n#### Commands\n`make run`/);
+  assert.doesNotMatch(agContext, /@AGENTS\.md|is not filled in yet/, 'no import line, no project.md nag');
+  const cl = spawnSync(process.execPath, [BIN, 'hook', 'claude', 'session-start'], { cwd: os.tmpdir(), env, encoding: 'utf8', input: JSON.stringify({ cwd: repo }) });
+  assert.doesNotMatch(cl.stdout, /Project instructions from/);
+
+  assert.equal(run(['doctor', '.']).out.includes('✗ Claude Code auto memory off'), false);
+
+  // Uninstall removes what install added, including the auto-memory setting.
+  run(['uninstall', '.']);
+  assert.equal(read('CLAUDE.md').trimEnd(), OWN);
+  assert.ok(!fs.existsSync(path.join(repo, '.claude/settings.json')));
+});
+
+test('install --per-branch imports only this branch and remembers the choice; explicit autoMemoryEnabled is kept', () => {
+  const t = branchedSetup();
+  const config = JSON.parse(t.read('.agent-memory.json'));
+  delete config.claude.importedAt;
+  write(t.repo, { '.agent-memory.json': JSON.stringify(config, null, 2), '.claude/settings.json': JSON.stringify({ autoMemoryEnabled: true }) });
+  const r = t.run(['install', '--per-branch']);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /imported 4 entries for branch brand\/aurora/);
+  assert.doesNotMatch(t.read('docs/memory/decisions.md'), /borealis-cadence/);
+  assert.equal(JSON.parse(t.read('.agent-memory.json')).claude.importOnInstall, 'branch');
+  assert.equal(JSON.parse(t.read('.claude/settings.json')).autoMemoryEnabled, true, "the user's explicit choice wins");
 });

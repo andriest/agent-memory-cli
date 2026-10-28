@@ -37,7 +37,7 @@ export function onSessionStart(project, { agent, sessionId }) {
       saveState(project, state);
     });
   }
-  return buildContext(project);
+  return buildContext(project, { agent });
 }
 
 // Stop: ask the agent (once per working-tree state, rate limited) to update memory when the

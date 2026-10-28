@@ -17,6 +17,9 @@ export const DEFAULT_CONFIG = {
     recent: 5,
     sections: [...SECTIONS],
     files: [],
+    // Inject the other agent's instruction file at session start (CLAUDE.md for Antigravity,
+    // GEMINI.md for Claude Code), so project instructions reach every agent.
+    agentInstructions: true,
   },
   handoff: {
     keep: 10,
@@ -34,6 +37,13 @@ export const DEFAULT_CONFIG = {
     patterns: [],
     allow: [],
     excludePaths: ['.env', '.env.*', '*.pem', '*.key', '*.p12', 'secrets/**', 'credentials*'],
+  },
+  claude: {
+    // Set "autoMemoryEnabled": false in .claude/settings.json so docs/memory is the only memory.
+    disableAutoMemory: true,
+    // Import Claude Code auto memory on the first `install`: "auto" (per branch when
+    // `branches` is configured, otherwise everything), "all", "branch" or "off".
+    importOnInstall: 'auto',
   },
   // Other names a branch goes by in notes, e.g. { "brand/aurora": ["Aurora Shop"] }.
   // Used by `import claude --branch` to tell which memories belong to which branch.
@@ -73,6 +83,10 @@ const SCHEMA = {
   'context.recent': CHECKS.posint,
   'context.sections': enumList(SECTIONS),
   'context.files': CHECKS['string[]'],
+  'context.agentInstructions': CHECKS.boolean,
+  'claude.disableAutoMemory': CHECKS.boolean,
+  'claude.importOnInstall': enumOf(['auto', 'all', 'branch', 'off']),
+  'claude.importedAt': CHECKS.string,
   'handoff.keep': CHECKS.posint,
   'handoff.gitChanges': CHECKS.boolean,
   'session.onStop': enumOf(['remind', 'off']),

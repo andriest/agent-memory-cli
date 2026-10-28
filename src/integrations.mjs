@@ -3,6 +3,7 @@ import { AGENTS } from './config.mjs';
 import { exists, pruneEmptyDirs, readText, removeFile, writeIfChanged } from './fsutil.mjs';
 import { BLOCK_START, hasBlock, removeBlock, stripComments, upsertBlock } from './markdown.mjs';
 import {
+  CLAUDE_IMPORT_BLOCK,
   MANAGED_MARKER,
   antigravityHandoffWorkflow,
   antigravitySaveWorkflow,
@@ -131,7 +132,13 @@ function withoutClaudeHooks(hooks = {}) {
   return out;
 }
 
-function installClaude(project, p) {
+// With AGENTS.md carrying the protocol, CLAUDE.md only needs to import it; otherwise it gets
+// its own copy of the protocol.
+function claudeBlock(project, agentsMdHasProtocol) {
+  return agentsMdHasProtocol ? CLAUDE_IMPORT_BLOCK : protocolBlock(project.relDir);
+}
+
+function installClaude(project, p, agents) {
   const results = [];
   const claudeMd = readText(p.claudeMd);
   if (importsAgentsMd(claudeMd)) {
@@ -139,10 +146,12 @@ function installClaude(project, p) {
     results.push({
       file: p.claudeMd,
       action: cleaned === claudeMd ? 'unchanged' : writeIfChanged(p.claudeMd, cleaned),
-      note: 'imports @AGENTS.md, protocol comes from there',
+      note: 'already imports @AGENTS.md',
     });
   } else {
-    results.push(upsertInstructions(p.claudeMd, protocolBlock(project.relDir)));
+    const viaAgents = agents.includes('antigravity') || hasBlock(readText(p.agentsMd));
+    const result = upsertInstructions(p.claudeMd, claudeBlock(project, viaAgents));
+    results.push(viaAgents ? { ...result, note: 'imports @AGENTS.md' } : result);
   }
 
   const settings = readJson(p.claudeSettings);
@@ -152,11 +161,12 @@ function installClaude(project, p) {
     (hooks[h.event] ??= []).push(h.matcher ? { matcher: h.matcher, ...group } : group);
   }
   settings.hooks = hooks;
-  results.push({
-    file: p.claudeSettings,
-    action: writeJson(p.claudeSettings, settings),
-    note: `hooks: ${CLAUDE_HOOKS.map((h) => h.event).join(', ')}`,
-  });
+  // An explicit autoMemoryEnabled value is the user's choice and is left alone.
+  const autoMemoryOff = project.config.claude.disableAutoMemory && !('autoMemoryEnabled' in settings);
+  if (autoMemoryOff) settings.autoMemoryEnabled = false;
+  const notes = [`hooks: ${CLAUDE_HOOKS.map((h) => h.event).join(', ')}`];
+  if (settings.autoMemoryEnabled === false) notes.push('auto memory off');
+  results.push({ file: p.claudeSettings, action: writeJson(p.claudeSettings, settings), note: notes.join('; ') });
 
   for (const [name, render] of Object.entries(p.claudeCommands)) {
     results.push(writeManaged(path.join(p.claudeCommandsDir, name), render(project.relDir)));
@@ -171,10 +181,12 @@ function uninstallClaude(project, p) {
 
   if (exists(p.claudeSettings)) {
     const settings = readJson(p.claudeSettings);
-    if (settings.hooks) {
+    const managesAutoMemory = project.config.claude.disableAutoMemory && settings.autoMemoryEnabled === false;
+    if (settings.hooks || managesAutoMemory) {
       const hooks = withoutClaudeHooks(settings.hooks);
       if (Object.keys(hooks).length) settings.hooks = hooks;
       else delete settings.hooks;
+      if (managesAutoMemory) delete settings.autoMemoryEnabled;
       if (!Object.keys(settings).length) {
         removeFile(p.claudeSettings);
         results.push({ file: p.claudeSettings, action: 'removed' });
@@ -242,7 +254,7 @@ function uninstallAntigravity(project, p) {
 export function install(project, agents) {
   const p = paths(project.root);
   const results = [];
-  if (agents.includes('claude')) results.push(...installClaude(project, p));
+  if (agents.includes('claude')) results.push(...installClaude(project, p, agents));
   if (agents.includes('antigravity')) results.push(...installAntigravity(project, p));
   return results;
 }
@@ -251,7 +263,14 @@ export function uninstall(project, agents) {
   const p = paths(project.root);
   const results = [];
   if (agents.includes('claude')) results.push(...uninstallClaude(project, p));
-  if (agents.includes('antigravity')) results.push(...uninstallAntigravity(project, p));
+  if (agents.includes('antigravity')) {
+    results.push(...uninstallAntigravity(project, p));
+    // Claude Code stays installed: give CLAUDE.md its own protocol again instead of an import.
+    const claudeMd = readText(p.claudeMd, null);
+    if (!agents.includes('claude') && claudeMd !== null && hasBlock(claudeMd) && claudeMd.includes(CLAUDE_IMPORT_BLOCK)) {
+      results.push(upsertInstructions(p.claudeMd, claudeBlock(project, false)));
+    }
+  }
   return results;
 }
 
@@ -272,10 +291,12 @@ export function inspect(project, agents) {
     const hint = 'run `agent-memory install --agents claude`';
     const claudeMd = readText(p.claudeMd);
     const settings = safeJson(p.claudeSettings);
+    const agentsHasProtocol = readText(p.agentsMd).includes(BLOCK_START);
+    const viaImport = importsAgentsMd(claudeMd) || (hasBlock(claudeMd) && claudeMd.includes(CLAUDE_IMPORT_BLOCK));
     check(
       'Claude Code',
       'CLAUDE.md has the memory protocol',
-      claudeMd.includes(BLOCK_START) || (importsAgentsMd(claudeMd) && readText(p.agentsMd).includes(BLOCK_START)),
+      viaImport ? agentsHasProtocol : claudeMd.includes(BLOCK_START),
       hint,
     );
     if (settings === null) check('Claude Code', '.claude/settings.json is valid JSON', false, 'fix the file by hand');
@@ -283,6 +304,9 @@ export function inspect(project, agents) {
       const groups = settings?.hooks?.[h.event];
       const ok = Array.isArray(groups) && groups.some((g) => (g.hooks ?? []).some((x) => x.command === hookCommand('claude', h.arg)));
       check('Claude Code', `.claude/settings.json ${h.event} hook`, ok, hint);
+    }
+    if (project.config.claude.disableAutoMemory) {
+      check('Claude Code', 'Claude Code auto memory off (autoMemoryEnabled: false)', settings?.autoMemoryEnabled === false, 'set "autoMemoryEnabled": false in .claude/settings.json');
     }
     if (settings?.disableAllHooks === true) {
       check('Claude Code', 'hooks enabled (disableAllHooks is true in .claude/settings.json)', false, 'remove disableAllHooks');

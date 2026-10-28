@@ -12,6 +12,7 @@ This repository keeps durable memory shared by every coding agent (Claude Code, 
 **Start of session**
 - Unless the memory was already injected into your context by a hook, run \`agent-memory read\` (fallback: read the top entry of \`${d}/handoff.md\`, then \`${d}/project.md\`, and skim \`${d}/decisions.md\` and \`${d}/learnings.md\`).
 - Continue from the latest handoff's "Next" items unless the user asks for something else.
+- Project instructions in \`CLAUDE.md\`, \`AGENTS.md\` and \`GEMINI.md\` apply to every agent, whichever tool they were written for. Read any of them that is not already in your context.
 
 **While working**
 - Before re-deciding or re-investigating something, search: \`agent-memory search <keyword> [keyword…]\`.
@@ -31,6 +32,10 @@ This repository keeps durable memory shared by every coding agent (Claude Code, 
 - Memory can be stale: verify file, function and command names against the code before relying on them.
 - Use your agent name consistently: \`claude\` for Claude Code, \`antigravity\` for Gemini Antigravity.`;
 }
+
+// What CLAUDE.md gets when AGENTS.md carries the protocol: Claude Code skips AGENTS.md
+// whenever a CLAUDE.md exists, unless CLAUDE.md imports it.
+export const CLAUDE_IMPORT_BLOCK = '@AGENTS.md';
 
 export function contextHeader(d) {
   return `# Shared agent memory (${d}/)

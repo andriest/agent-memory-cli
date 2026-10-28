@@ -34,9 +34,12 @@ Usage: agent-memory <command> [options]
 
 Setup (once per repository)
   install [path] [--agents claude,antigravity] [--dir <path>] [--memory-only]
-                          Create docs/memory/ and .agent-memory.json if missing, and wire
-                          Claude Code + Antigravity to it (instructions, hooks, commands).
-                          Safe to re-run; never overwrites memory content. Alias: init
+          [--per-branch] [--skip-import]
+                          One-time setup: create docs/memory/ and .agent-memory.json, wire
+                          Claude Code + Antigravity to it (instructions, hooks, commands),
+                          turn off Claude's private auto memory, and import it on the first
+                          run (--per-branch: only this branch's memories). Safe to re-run;
+                          never overwrites memory content. Alias: init
   uninstall [path] [--agents …]
                           Remove integrations (memory files and config are kept)
   doctor [path]           Check config, memory files, hooks and the CLI on PATH
@@ -79,6 +82,8 @@ const OPTIONS = {
   agents: { type: 'string' },
   only: { type: 'string' },
   'memory-only': { type: 'boolean' },
+  'skip-import': { type: 'boolean' },
+  'per-branch': { type: 'boolean' },
   'skip-install': { type: 'boolean' },
   body: { type: 'string' },
   tags: { type: 'string' },
@@ -166,9 +171,45 @@ function installCommand(_, values, args) {
     out(`\nAgent integrations (${project.config.agents.join(', ')})`);
     printResults(project, install(project, project.config.agents));
   }
-  out(`\nNext: fill in ${project.relDir}/project.md (or ask an agent to), review ${CONFIG_FILE},`);
-  out(`then commit ${project.relDir}/, ${CONFIG_FILE} and the integration files.`);
+
+  out('\nClaude Code memory');
+  out(`  ${autoImport(project, values)}`);
+
+  const files = [`${project.relDir}/`, CONFIG_FILE, 'AGENTS.md', 'CLAUDE.md', '.claude/', '.agents/'];
+  out(`\nReady. Start \`claude\` or \`agy\` in ${project.root}; the shared memory loads automatically.`);
+  out(`Review the changes, then commit: ${files.join(' ')}`);
   if (!onPath()) out('Note: `agent-memory` is not on your PATH, so hooks will stay silent. See README → Installation.');
+}
+
+// First install only: bring Claude Code's private auto memory into the shared memory. The
+// time is recorded in the config, so later installs never re-add entries you deleted.
+function autoImport(project, values) {
+  const { claude, branches } = project.config;
+  if (values['skip-import'] || (claude.importOnInstall === 'off' && !values['per-branch'])) return 'import skipped';
+  if (claude.importedAt) return `already imported (${claude.importedAt.slice(0, 10)}); run \`agent-memory import claude\` to import again`;
+  let found;
+  try {
+    found = findClaudeMemoryDir(project.root);
+  } catch {
+    return 'no Claude Code auto memory found for this project; nothing to import';
+  }
+  const mode = values['per-branch'] ? 'branch' : claude.importOnInstall;
+  let branch = null;
+  if (mode === 'branch' || (mode === 'auto' && Object.keys(branches).length)) {
+    const name = currentBranch(project.root);
+    if (!name) return 'not on a branch (detached HEAD); per-branch import skipped';
+    branch = branchFilter(name, listBranches(project.root), branches);
+  }
+  const plan = planImport(project, readClaudeMemories(found.dir), { branch });
+  const done = applyImport(project, plan);
+  const skipped = plan.filter((p) => p.action === 'skip').length;
+
+  const raw = openProject({ cwd: project.root, dir: values.dir }).configInfo;
+  const record = { ...(raw.raw.claude ?? {}), importedAt: new Date().toISOString() };
+  if (values['per-branch']) record.importOnInstall = 'branch';
+  writeConfig(raw, { claude: record });
+  const scope = branch ? ` for branch ${branch.name}` : '';
+  return `imported ${done.add} entr${done.add === 1 ? 'y' : 'ies'}${scope} from ${found.dir} (${skipped} skipped; see \`agent-memory import claude${branch ? ' --branch current' : ''}\` for reasons)`;
 }
 
 const commands = {
@@ -198,7 +239,9 @@ const commands = {
     out(`    tests.command: ${config.tests.command || '(not set)'}`);
 
     out(`\nMemory (${project.relDir}/)`);
-    for (const name of ['project', 'decisions', 'learnings', 'handoff']) {
+    const expected = ['decisions', 'learnings', 'handoff'];
+    if (config.context.sections.includes('project')) expected.unshift('project');
+    for (const name of expected) {
       line(fs.existsSync(project.file(name)), FILES[name], 'run `agent-memory install`');
     }
     const ignore = readText(path.join(project.memDir, '.gitignore'));
