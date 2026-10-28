@@ -11,6 +11,12 @@ export function isRepo(root) {
   return git(root, ['rev-parse', '--is-inside-work-tree'])?.trim() === 'true';
 }
 
+// The main worktree's root (the same as `root` unless `root` is a linked worktree).
+export function mainWorktreeRoot(root) {
+  const common = git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir'])?.trim();
+  return common && path.basename(common) === '.git' ? path.dirname(common) : null;
+}
+
 // Everything except the memory folder, which changes on every save.
 const scope = (memRel) => ['--', '.', `:(exclude)${memRel}`];
 

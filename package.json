@@ -1,6 +1,6 @@
 {
   "name": "shared-agent-memory",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Shared, git-tracked project memory for coding agents (Claude Code, Gemini Antigravity). No server, no database, no API keys.",
   "repository": {
     "type": "git",

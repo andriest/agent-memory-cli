@@ -25,6 +25,7 @@ This repository keeps durable memory shared by every coding agent (Claude Code, 
 \`agent-memory handoff --agent <your-name> --summary "<one line>" --done "<item>" --next "<item>" [--blockers "<item>"]\` (repeat \`--done\`, \`--next\`, \`--blockers\` once per item). A stop hook may remind you with the exact command; pass its \`--session\` value so repeated handoffs update one entry.
 
 **Rules**
+- Keep project knowledge here, not in your agent's private or built-in memory, so every agent can see it.
 - Never write secrets, tokens, credentials or personal data to memory; it is committed to git.
 - Save only durable knowledge that is not obvious from the code or git history. No transcripts or step-by-step logs.
 - Memory can be stale: verify file, function and command names against the code before relying on them.

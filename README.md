@@ -126,6 +126,50 @@ shared-memory handoff --agent claude --summary "Login form wired to the API" \
 `handoff` automatically includes the git branch, the last test run, and the list of uncommitted
 changes. The memory folder and sensitive paths are left out.
 
+## Migrating existing Claude Code memory
+
+If Claude Code has already built up auto memory for a project
+(`~/.claude/projects/<project>/memory/`), import it once so every agent can use it:
+
+```sh
+shared-memory import claude            # show the plan; nothing is written
+shared-memory import claude --apply    # write it
+git diff docs/memory                   # review, edit or delete entries, then commit
+```
+
+| Claude memory type | Imported into | Notes |
+| --- | --- | --- |
+| `feedback` | `decisions.md` (tags `imported, convention`) | How to work on this project |
+| `project` | `learnings.md` (tags `imported, project`) | Facts, findings, project state |
+| `reference` | `learnings.md` (tags `imported, reference`) | Pointers to external resources |
+| `user` | **skipped** | Personal preferences stay private; shared memory is committed to git |
+
+- **Read-only on Claude's side.** Claude's memory files are only read, never changed or deleted.
+- **Finds the directory like Claude Code does.** It uses `autoMemoryDirectory` (local, project
+  or user settings), `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_PROJECT_DIR_NAME`, then
+  `~/.claude/projects/<encoded git root>/memory` (shared by all worktrees). Use
+  `--from <dir>` to point at it explicitly.
+- **Safe to re-run.** Every entry carries `source: claude-memory/<file>`, so imported files are
+  skipped. `--update` refreshes entries whose source memory changed since the import.
+- **Converted to the shared format.** Titles come from the memory's heading or the first clause of
+  its description (the full description is kept in the body). `[[links]]` between memories
+  become the linked entry's title, and headings inside a memory are demoted so they cannot
+  break the file. Dates come from the memory's `modified` timestamp.
+- **Filtered.** Entries that look like secrets are skipped, and so are titles that already
+  exist. `--types feedback,project` limits what is imported, and `--json` prints the plan
+  for scripts.
+- **`project.md` is not touched.** It stays curated by hand. Promote stable facts into it
+  yourself, or ask an agent to.
+
+After importing, Claude Code still keeps writing its private memory. To make the shared memory
+the only one for the project, add `"autoMemoryEnabled": false` to `.claude/settings.json`.
+The memory protocol in `AGENTS.md`/`CLAUDE.md` also tells every agent to keep project
+knowledge in the shared memory.
+
+Antigravity CLI has no plain-text memory store to import from: in version 1.4.9 its
+per-conversation data is internal binary protobuf. Notes it writes into `GEMINI.md`,
+`AGENTS.md` or `.agents/rules/` are already project files, which both agents can read.
+
 ## Configuration
 
 `.agent-memory.json` at the repository root. Every key is optional; missing keys fall back to
@@ -218,7 +262,7 @@ working tree. Anything that should be shared across machines belongs in a handof
 ## Development
 
 ```sh
-npm test       # node:test, no dependencies (24 tests)
+npm test       # node:test, no dependencies (31 tests)
 ```
 
 Code layout:
@@ -232,3 +276,4 @@ Code layout:
 - `src/templates.mjs` — all text written into target repositories
 - `src/markdown.mjs` — entry parser and managed blocks
 - `src/secrets.mjs` — secret detection and redaction
+- `src/importers/claude.mjs` — one-way import of Claude Code auto memory

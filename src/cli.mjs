@@ -22,6 +22,7 @@ import {
   writeHandoff,
 } from './memory.mjs';
 import { onSessionEnd, onSessionStart, onStop, runTests } from './session.mjs';
+import { CLAUDE_TYPES, applyImport, findClaudeMemoryDir, planImport, readClaudeMemories } from './importers/claude.mjs';
 
 const VERSION = JSON.parse(readText(new URL('../package.json', import.meta.url))).version;
 
@@ -51,6 +52,11 @@ Daily use (by agents or humans)
           [--notes "<text>" | --notes -] [--session <id>] [--agent <name>] [--skip-git]
   test ["<command>"]      Run tests (default: tests.command) and record the result
   status                  Last session snapshot and last test run
+
+Migration
+  import claude [--from <dir>] [--types feedback,project,reference] [--update] [--apply] [--json]
+                          Import this project's Claude Code auto memory into the shared
+                          memory (one-way). Shows the plan only, unless --apply is given
 
 Internal
   hook <claude|antigravity> <session-start|stop|session-end>
@@ -86,6 +92,10 @@ const OPTIONS = {
   notes: { type: 'string' },
   session: { type: 'string' },
   'skip-git': { type: 'boolean' },
+  from: { type: 'string' },
+  types: { type: 'string' },
+  apply: { type: 'boolean' },
+  update: { type: 'boolean' },
   'max-chars': { type: 'string' },
   recent: { type: 'string' },
   all: { type: 'boolean' },
@@ -289,6 +299,38 @@ const commands = {
     const { code, passed, seconds } = await runTests(project, { command: args.join(' '), agent: detectAgent(values.agent) });
     err(`\nagent-memory: tests ${passed ? 'passed' : `failed (exit ${code})`} in ${seconds}s — recorded in ${project.relDir}/status.md`);
     return code;
+  },
+
+  import(project, values, [source]) {
+    if (source !== 'claude') throw new UsageError('usage: agent-memory import claude [--from <dir>] [--apply]');
+    const types = values.types?.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
+    const unknown = types?.filter((t) => !CLAUDE_TYPES.includes(t)) ?? [];
+    if (unknown.length) throw new UsageError(`unknown memory type(s): ${unknown.join(', ')} (use: feedback, project, reference)`);
+
+    const { dir, why } = findClaudeMemoryDir(project.root, values.from);
+    const plan = planImport(project, readClaudeMemories(dir), { types, update: values.update });
+    const count = (action) => plan.filter((p) => p.action === action).length;
+    if (values.json) {
+      out(JSON.stringify({ source: dir, plan: plan.map(({ text, ...p }) => p) }, null, 2));
+      if (!values.apply) return;
+    } else {
+      out(`Claude Code memory: ${dir}  (${why}, ${plan.length} file(s))\n`);
+      const width = { action: 6, key: 9 };
+      for (const p of plan) {
+        const where = p.key ? FILES[p.key].replace('.md', '') : '-';
+        const what = p.title ? `"${p.title}"` : '';
+        out(`  ${p.action.padEnd(width.action)}  ${where.padEnd(width.key)}  ${p.type.padEnd(9)}  ${p.file}${what ? `  → ${what}` : ''}${p.reason ? `  (${p.reason})` : ''}`);
+      }
+      out(`\nPlan: ${count('add')} to add, ${count('update')} to update, ${count('skip')} skipped.`);
+    }
+    if (!values.apply) {
+      out('Nothing written. Re-run with --apply to import.');
+      return;
+    }
+    const written = applyImport(project, plan);
+    out(`Imported ${written} entr${written === 1 ? 'y' : 'ies'} into ${project.relDir}/. Review with \`git diff ${project.relDir}\` before committing.`);
+    out('Claude Code keeps writing its private memory; to make the shared memory the only one for this project,');
+    out('add "autoMemoryEnabled": false to .claude/settings.json.');
   },
 };
 
