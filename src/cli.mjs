@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
-import { AGENTS, CONFIG_FILE, writeConfig } from './config.mjs';
+import { AGENTS, CONFIG_FILE, stopModeFor, writeConfig } from './config.mjs';
 import { readText } from './fsutil.mjs';
 import { fingerprint } from './git.mjs';
 import { inspect, install, resolveAgents, uninstall } from './integrations.mjs';
@@ -235,7 +235,8 @@ const commands = {
     out(`Project root: ${project.root}\n\nConfig (${CONFIG_FILE})`);
     line(configInfo.exists, configInfo.exists ? 'present and valid' : 'not found (defaults in use)', 'run `agent-memory install`');
     for (const w of configInfo.warnings) out(`  ! ${w}`);
-    out(`    agents: ${config.agents.join(', ') || '(none)'} · stop hook: ${config.session.onStop} · session end: ${config.session.onEnd}`);
+    const stop = config.agents.map((a) => `${a} ${stopModeFor(config, a)}`).join(', ') || stopModeFor(config, 'claude');
+    out(`    agents: ${config.agents.join(', ') || '(none)'} · stop reminder: ${stop} · session end: ${config.session.onEnd}`);
     out(`    tests.command: ${config.tests.command || '(not set)'}`);
 
     out(`\nMemory (${project.relDir}/)`);

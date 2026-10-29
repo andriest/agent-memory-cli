@@ -76,6 +76,21 @@ const enumList = (values) => [
   `an array containing only: ${values.join(', ')}`,
 ];
 
+// "remind" | "off" for every agent, or per agent: { "claude": "remind", "antigravity": "off" }.
+const STOP_MODES = ['remind', 'off'];
+const stopMode = [
+  (v) =>
+    STOP_MODES.includes(v) ||
+    (isObject(v) && Object.entries(v).every(([agent, mode]) => AGENTS.includes(agent) && STOP_MODES.includes(mode))),
+  `"remind", "off", or an object mapping ${AGENTS.join('/')} to "remind" or "off"`,
+];
+
+// The stop-reminder mode for one agent; agents left out of a per-agent object get "remind".
+export function stopModeFor(config, agent) {
+  const v = config.session.onStop;
+  return typeof v === 'string' ? v : (v[agent] ?? 'remind');
+}
+
 const SCHEMA = {
   dir: CHECKS.string,
   agents: enumList(AGENTS),
@@ -89,7 +104,7 @@ const SCHEMA = {
   'claude.importedAt': CHECKS.string,
   'handoff.keep': CHECKS.posint,
   'handoff.gitChanges': CHECKS.boolean,
-  'session.onStop': enumOf(['remind', 'off']),
+  'session.onStop': stopMode,
   'session.remindIntervalMinutes': CHECKS.nonneg,
   'session.onEnd': enumOf(['status', 'off']),
   'tests.command': CHECKS.string,

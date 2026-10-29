@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-29
+
+### Added
+
+- `session.onStop` accepts a mode per agent, for example
+  `{ "claude": "remind", "antigravity": "off" }`. Agents left out keep `"remind"`. With the
+  reminder off for an agent, its sessions are still recorded in `status.md`, and a missing handoff
+  is still flagged to the next session.
+- `doctor` shows the stop-reminder mode for each installed agent.
+
 ## [0.5.2] - 2026-10-29
 
 ### Changed
@@ -129,7 +139,8 @@ First release.
   files on uninstall.
 - Verified with Claude Code 2.1.312 and Antigravity CLI 1.4.9.
 
-[Unreleased]: https://github.com/andriest/agent-memory-cli/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/andriest/agent-memory-cli/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/andriest/agent-memory-cli/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/andriest/agent-memory-cli/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/andriest/agent-memory-cli/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/andriest/agent-memory-cli/compare/v0.4.0...v0.5.0

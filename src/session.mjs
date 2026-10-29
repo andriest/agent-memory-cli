@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { stopModeFor } from './config.mjs';
 import { exists, withLock } from './fsutil.mjs';
 import { fingerprint, gitState } from './git.mjs';
 import {
@@ -58,7 +59,8 @@ export function onSessionStart(project, { agent, sessionId, source }) {
 // Stop: ask the agent (once per working-tree state, rate limited) to update memory when the
 // session changed files since it started or since the last handoff. Returns null to allow.
 export function onStop(project, { agent, sessionId, alreadyContinued = false }) {
-  const { onStop: mode, remindIntervalMinutes } = project.config.session;
+  const mode = stopModeFor(project.config, agent);
+  const { remindIntervalMinutes } = project.config.session;
   if (mode === 'off' || alreadyContinued || !sessionId || !exists(project.memDir)) return null;
   const fp = fingerprint(project.root, project.relDir);
   if (!fp) return null;

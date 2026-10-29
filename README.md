@@ -140,7 +140,14 @@ If a session ends without a handoff, the next session receives the warning
 
 Set `"session": { "remindIntervalMinutes": 60 }` to be reminded less often,
 `"session": { "onStop": "off" }` to disable the reminder, or `"onEnd": "off"` to disable the
-snapshot. With the reminder off, a session that ends without a handoff is still recorded in
+snapshot. To disable it for one agent only, give a mode per agent; agents you leave out keep
+`"remind"`:
+
+```json
+"session": { "onStop": { "claude": "remind", "antigravity": "off" } }
+```
+
+With the reminder off, a session that ends without a handoff is still recorded in
 `status.md` and flagged to the next session.
 
 ### Token cost
@@ -286,7 +293,8 @@ rejected with a clear message; unknown keys only produce a warning.
     "gitChanges": true                   // include branch & uncommitted changes
   },
   "session": {
-    "onStop": "remind",                  // "remind" | "off"
+    "onStop": "remind",                  // "remind" | "off", or per agent:
+                                         // { "claude": "remind", "antigravity": "off" }
     "remindIntervalMinutes": 20,
     "onEnd": "status"                    // "status" | "off"
   },
@@ -374,7 +382,7 @@ working tree. Anything that should be shared across machines belongs in a handof
 ## Development
 
 ```sh
-npm test       # node:test, no dependencies (40 tests)
+npm test       # node:test, no dependencies (41 tests)
 ```
 
 Code layout:

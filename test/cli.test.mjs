@@ -162,7 +162,7 @@ test('config is validated with clear errors and unknown keys are warnings', () =
   const r = run(dir, ['read']);
   assert.equal(r.code, 1);
   assert.match(r.err, /"context\.maxChars" must be a positive integer/);
-  assert.match(r.err, /"session\.onStop" must be one of: remind, off/);
+  assert.match(r.err, /"session\.onStop" must be "remind", "off", or an object/);
 
   write(dir, { '.agent-memory.json': { extra: 1, tests: { command: 'true' } } });
   const ok = run(dir, ['config']);
@@ -517,4 +517,35 @@ test('the stop reminder is short and only mentions tests when a test command is 
   write(dir, { '.agent-memory.json': config });
   write(dir, { 'src/a.js': '3\n' });
   assert.match(JSON.parse(hook('claude', 'stop', p).out).hookSpecificOutput.additionalContext, /agent-memory test --agent claude.*`npm test`/);
+});
+
+test('session.onStop can turn the reminder off for one agent only', () => {
+  const dir = tempRepo({ 'src/a.js': '1\n' });
+  run(dir, ['install', '--memory-only']);
+  commitAll(dir);
+  const config = readJson(dir, '.agent-memory.json');
+  config.session.onStop = { claude: 'remind', antigravity: 'off' };
+  write(dir, { '.agent-memory.json': config });
+  commitAll(dir);
+  const ag = { workspacePaths: [dir], conversationId: 'per-agent-ag' };
+  const cl = { cwd: dir, session_id: 'per-agent-cl' };
+  hook('antigravity', 'session-start', ag);
+  hook('claude', 'session-start', cl);
+  write(dir, { 'src/a.js': '2\n' });
+
+  assert.deepEqual(JSON.parse(hook('antigravity', 'stop', { ...ag, fullyIdle: true }).out), { decision: 'stop' });
+  assert.match(read(dir, 'docs/memory/status.md'), /agent: antigravity · .*handoff: no/, 'status is still recorded');
+  assert.match(JSON.parse(hook('claude', 'stop', cl).out).hookSpecificOutput.additionalContext, /--agent claude/);
+  assert.match(run(dir, ['doctor']).out, /stop reminder: claude remind, antigravity off/);
+
+  // Agents left out of the object keep the default.
+  config.session.onStop = { antigravity: 'off' };
+  write(dir, { '.agent-memory.json': config });
+  assert.equal(run(dir, ['config']).code, 0);
+
+  config.session.onStop = { codex: 'off' };
+  write(dir, { '.agent-memory.json': config });
+  const bad = run(dir, ['read']);
+  assert.equal(bad.code, 1);
+  assert.match(bad.err, /"session\.onStop" must be "remind", "off", or an object mapping claude\/antigravity/);
 });
