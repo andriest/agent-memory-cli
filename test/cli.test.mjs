@@ -376,9 +376,10 @@ test('claude stop hook reminds once per change and stays quiet otherwise', () =>
   assert.equal(hook('claude', 'stop', p).out, '', 'no changes yet: allow stop');
 
   write(dir, { 'src/a.js': '2\n' });
-  const block = JSON.parse(hook('claude', 'stop', p).out);
-  assert.equal(block.decision, 'block');
-  assert.match(block.reason, /agent-memory handoff --session sess-1 --agent claude/);
+  const reminder = JSON.parse(hook('claude', 'stop', p).out);
+  assert.equal(reminder.decision, undefined, 'feedback, not a blocking error');
+  assert.equal(reminder.hookSpecificOutput.hookEventName, 'Stop');
+  assert.match(reminder.hookSpecificOutput.additionalContext, /agent-memory handoff --session sess-1 --agent claude/);
 
   assert.equal(hook('claude', 'stop', p).out, '', 'same state: not asked twice');
   assert.equal(hook('claude', 'stop', { ...p, stop_hook_active: true }).out, '');
@@ -388,7 +389,7 @@ test('claude stop hook reminds once per change and stays quiet otherwise', () =>
   assert.equal(hook('claude', 'stop', p).out, '', 'handoff covers the current state');
 
   write(dir, { 'src/a.js': '4\n' });
-  assert.equal(JSON.parse(hook('claude', 'stop', p).out).decision, 'block', 'new changes after the handoff');
+  assert.match(JSON.parse(hook('claude', 'stop', p).out).hookSpecificOutput.additionalContext, /Before you finish/, 'new changes after the handoff');
 
   config.session.onStop = 'off';
   write(dir, { '.agent-memory.json': config });
@@ -403,7 +404,7 @@ test('stop reminders are rate limited', () => {
   const p = { cwd: dir, session_id: 'sess-2' };
   hook('claude', 'session-start', p);
   write(dir, { 'src/a.js': '2\n' });
-  assert.equal(JSON.parse(hook('claude', 'stop', p).out).decision, 'block');
+  assert.match(JSON.parse(hook('claude', 'stop', p).out).hookSpecificOutput.additionalContext, /Before you finish/);
   write(dir, { 'src/a.js': '3\n' });
   assert.equal(hook('claude', 'stop', p).out, '', 'within remindIntervalMinutes');
 });

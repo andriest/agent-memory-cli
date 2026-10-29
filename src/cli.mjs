@@ -443,7 +443,13 @@ function runHook(agent, event = 'session-start') {
         ? onStop(project, { agent, sessionId, alreadyContinued: input.stop_hook_active === true })
         : null;
       if (reason) {
-        output = JSON.stringify(agent === 'claude' ? { decision: 'block', reason } : { decision: 'continue', reason });
+        // Claude Code: additionalContext keeps the turn going like `decision: "block"` (same loop
+        // protections) but is labelled "Stop hook feedback" instead of a hook error.
+        output = JSON.stringify(
+          agent === 'claude'
+            ? { hookSpecificOutput: { hookEventName: 'Stop', additionalContext: reason } }
+            : { decision: 'continue', reason },
+        );
       } else if (agent === 'antigravity') {
         // Antigravity has no session-end event: refresh the status snapshot whenever it stops.
         onSessionEnd(project, { agent, sessionId, reason: input.terminationReason, final: false });

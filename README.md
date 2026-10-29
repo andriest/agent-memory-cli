@@ -120,17 +120,26 @@ restores your files exactly as they were. Memory files and the config are kept.
 
 The `Stop` reminder is designed to stay out of the way:
 
+- **Only when code changed.** Questions and answers without file changes never trigger it, and
+  neither do changes inside `docs/memory/`.
 - **Once per code state.** If nothing new changed, the agent is not asked again.
 - **Rate limited.** The default is `session.remindIntervalMinutes: 20`.
-- **Loop-safe.** Claude uses `stop_hook_active`. Antigravity is only reminded when `fullyIdle` is true and there is no error.
+- **Feedback, not an error.** In Claude Code the reminder is returned as
+  `hookSpecificOutput.additionalContext`, which the transcript labels "Stop hook feedback".
+  A `decision: "block"` would be labelled "Stop hook error" even though nothing failed.
+  In Antigravity it is a `{"decision": "continue", "reason": …}` system message.
+- **Loop-safe.** Claude uses `stop_hook_active` (and Claude Code's own cap on consecutive
+  continuations). Antigravity is only reminded when `fullyIdle` is true and there is no error.
 - **One entry per session.** A handoff with the same `--session` **replaces** that session's entry, so `handoff.md` does not pile up.
 - **Skippable.** For trivial changes the agent can reply with one line and stop.
 
 If a session ends without a handoff, the next session receives the warning
 "⚠ The previous session ended without a handoff" together with the list of uncommitted changes.
 
-Set `"session": { "onStop": "off" }` to disable the reminder, or `"onEnd": "off"` to disable
-the snapshot.
+Set `"session": { "remindIntervalMinutes": 60 }` to be reminded less often,
+`"session": { "onStop": "off" }` to disable the reminder, or `"onEnd": "off"` to disable the
+snapshot. With the reminder off, a session that ends without a handoff is still recorded in
+`status.md` and flagged to the next session.
 
 ## Daily use
 
@@ -309,6 +318,11 @@ Tested on 2026-10-28 with real headless sessions (`claude -p` and `agy -p`), not
 | Claude Code | 2.1.312 | ✅ | ✅ agent received the reminder | ✅ `SessionEnd` |
 | Antigravity CLI (`agy`) | 1.4.9 | ✅ | ✅ agent ran the tests and wrote a handoff | ✅ via `Stop` |
 | Antigravity IDE | — | not tested | not tested | not tested |
+
+The Claude Code `Stop` reminder was re-verified on 2026-10-29 after switching to
+`additionalContext`: the agent received it, continued, and wrote the session's handoff with
+`--session`. The "Stop hook feedback" label appears only in interactive sessions, so that part
+comes from the Claude Code hooks documentation rather than from a headless test.
 
 Instruction files were verified the same way: Claude Code read a codeword that existed only in
 `AGENTS.md` (through the `@AGENTS.md` import inside the managed block), and Antigravity CLI read
