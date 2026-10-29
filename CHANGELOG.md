@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-29
+
+### Changed
+
+- `context.maxChars` is now a hard limit. Truncation counts its own "truncated" note, and a section
+  that no longer fits is left out with a pointer to `agent-memory read`. Previously the context
+  could exceed the limit by about 15%.
+- A resumed Claude Code session only gets the memory context again when the memory changed since
+  it was last injected (for example, another agent wrote a handoff). After `clear` or `compact` it
+  is always injected again. Changes to the local `status.md` do not count.
+- A session is no longer told that it itself ended without a handoff.
+- The `Stop` reminder is about half as long, with one required command (the handoff). Saving
+  decisions or learnings is optional, and running tests is only suggested when `tests.command` is
+  set.
+
+### Documentation
+
+- A "Token cost" section in the README.
+
 ## [0.5.1] - 2026-10-29
 
 ### Changed
@@ -110,7 +129,8 @@ First release.
   files on uninstall.
 - Verified with Claude Code 2.1.312 and Antigravity CLI 1.4.9.
 
-[Unreleased]: https://github.com/andriest/agent-memory-cli/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/andriest/agent-memory-cli/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/andriest/agent-memory-cli/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/andriest/agent-memory-cli/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/andriest/agent-memory-cli/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/andriest/agent-memory-cli/compare/v0.3.0...v0.4.0

@@ -431,7 +431,7 @@ function runHook(agent, event = 'session-start') {
   try {
     const project = openProject({ cwd });
     if (event === 'session-start') {
-      const context = onSessionStart(project, { agent, sessionId });
+      const context = onSessionStart(project, { agent, sessionId, source: input.source });
       if (context) {
         // Antigravity: injectSteps[].systemMessage is an object holding the message text.
         output = agent === 'claude' ? context : JSON.stringify({ injectSteps: [{ systemMessage: { systemMessage: context } }] });

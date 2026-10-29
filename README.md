@@ -114,8 +114,8 @@ restores your files exactly as they were. Memory files and the config are kept.
 
 | When | Claude Code | Antigravity | What happens |
 | --- | --- | --- | --- |
-| **Session start** | `SessionStart` | `SessionStart` | Memory context is injected: latest handoff, status, `project.md`, recent decisions and learnings, and extra files from the config. The working-tree state at that moment is recorded as the baseline. |
-| **Agent finishes a reply** | `Stop` | `Stop` | If this session changed files since it started or since the last handoff, the agent is asked to save decisions/learnings, run tests via `agent-memory test`, and write a handoff with `--session <id>`. |
+| **Session start** | `SessionStart` | `SessionStart` | Memory context is injected: latest handoff, status, `project.md`, recent decisions and learnings, and extra files from the config, within `context.maxChars`. After `clear` or `compact` it is injected again; a resumed session only gets it again if the memory changed in the meantime. The working-tree state is recorded as the baseline. |
+| **Agent finishes a reply** | `Stop` | `Stop` | If this session changed files since it started or since the last handoff, the agent gets a short reminder to write a handoff with `--session <id>` (and, only if relevant, to save a decision or learning, or run the configured tests). |
 | **Session closes** | `SessionEnd` | *(every `Stop`)* | A deterministic snapshot (no model involved) is written to `status.md`: agent, time, branch, uncommitted changes, and whether a handoff was written. |
 
 The `Stop` reminder is designed to stay out of the way:
@@ -131,6 +131,8 @@ The `Stop` reminder is designed to stay out of the way:
 - **Loop-safe.** Claude uses `stop_hook_active` (and Claude Code's own cap on consecutive
   continuations). Antigravity is only reminded when `fullyIdle` is true and there is no error.
 - **One entry per session.** A handoff with the same `--session` **replaces** that session's entry, so `handoff.md` does not pile up.
+- **Short.** About 450 characters with one required command, because every reminder costs the
+  agent an extra turn. Tests are only mentioned when `tests.command` is set.
 - **Skippable.** For trivial changes the agent can reply with one line and stop.
 
 If a session ends without a handoff, the next session receives the warning
@@ -140,6 +142,20 @@ Set `"session": { "remindIntervalMinutes": 60 }` to be reminded less often,
 `"session": { "onStop": "off" }` to disable the reminder, or `"onEnd": "off"` to disable the
 snapshot. With the reminder off, a session that ends without a handoff is still recorded in
 `status.md` and flagged to the next session.
+
+### Token cost
+
+The shared memory costs tokens, so it is kept small:
+
+- **Always in context:** the memory protocol in `AGENTS.md`, about 2,600 characters (roughly 700
+  tokens). With Claude Code's own auto memory turned off, Claude no longer loads its `MEMORY.md`
+  index, which is usually about the same size or larger.
+- **Once per session:** the session-start context, at most `context.maxChars` (8,000 characters
+  by default, roughly 2,000–2,500 tokens). Lower it, or `context.recent`, for a smaller footprint.
+- **Per reminder:** a short message plus the extra turn in which the agent writes the handoff.
+  This is the largest variable cost; raise `session.remindIntervalMinutes` or set
+  `session.onStop: "off"` to reduce it.
+- **Free:** `import`, `search`, `status`, `doctor` and test recording run locally without a model.
 
 ## Daily use
 
@@ -259,7 +275,7 @@ rejected with a clear message; unknown keys only produce a warning.
   "dir": "docs/memory",                  // memory location
   "agents": ["claude", "antigravity"],   // integrations installed by `install`
   "context": {
-    "maxChars": 8000,                    // injected context budget (Claude truncates hook output over 10,000)
+    "maxChars": 8000,                    // hard limit for the injected context (Claude truncates hook output over 10,000)
     "recent": 5,                         // number of recent decisions/learnings
     "sections": ["handoff", "status", "project", "decisions", "learnings", "files"],  // selection & order
     "files": [],                         // extra repository files, e.g. ["docs/architecture.md"]
@@ -358,7 +374,7 @@ working tree. Anything that should be shared across machines belongs in a handof
 ## Development
 
 ```sh
-npm test       # node:test, no dependencies (37 tests)
+npm test       # node:test, no dependencies (40 tests)
 ```
 
 Code layout:

@@ -176,15 +176,13 @@ status.md
 `;
 
 // Sent back to the agent by the stop hook when the session changed files without a handoff.
+// Kept short, with one required command: every reminder costs the agent an extra turn.
 export function stopReminder({ dir, agent, session, testCommand }) {
-  const test = testCommand
-    ? `\`agent-memory test --agent ${agent}\` (runs \`${testCommand}\`)`
-    : `\`agent-memory test --agent ${agent} "<test command>"\``;
-  return `Before you finish: files changed in this session since the last shared-memory handoff. Update the shared project memory in ${dir}/ so the next agent (Claude Code or Antigravity) can continue:
-1. Save new durable decisions or learnings (\`agent-memory search\` first, then \`agent-memory save decision|learning "<title>" --body "…" --agent ${agent}\`). Edit ${dir}/project.md if the stack, commands, architecture or conventions changed.
-2. If you changed code and have not run the tests since, run them with ${test} so the result is recorded.
-3. Write or refresh this session's handoff: \`agent-memory handoff --session ${session} --agent ${agent} --summary "<one line>" --done "<item>" --next "<item>" [--blockers "<item>"]\`. Re-running with the same --session replaces this session's entry.
-If nothing durable changed (a trivial edit, an experiment you reverted), say so in one line and stop; you will not be asked again for this state.`;
+  const extras = [`\`agent-memory save decision|learning "<title>" --body "…" --agent ${agent}\` for a durable decision or gotcha`];
+  if (testCommand) extras.push(`\`agent-memory test --agent ${agent}\` if you changed code and have not run \`${testCommand}\``);
+  return `Files changed since the last shared-memory handoff (${dir}/). Before you stop, record this session for the next agent:
+\`agent-memory handoff --session ${session} --agent ${agent} --summary "<one line>" --done "<item>" --next "<item>"\`
+Only if relevant: ${extras.join('; ')}. If nothing worth recording changed, reply in one line and stop.`;
 }
 
 // --- Claude Code slash commands -------------------------------------------------------

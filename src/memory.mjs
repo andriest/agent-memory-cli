@@ -334,15 +334,17 @@ const demote = (entry) => renderEntry(entry).replace(/^## /, '### ');
 
 function entriesSection(entries, budget, fileHint) {
   const out = [];
+  const more = (n) => `_+${n} older in ${fileHint}_`;
   let used = 0;
-  for (const e of entries) {
-    const text = truncate(demote(e), ENTRY_CAP, fileHint);
-    if (used + text.length > budget && out.length) break;
+  for (const [i, e] of entries.entries()) {
+    const room = budget - used - (i < entries.length - 1 ? more(entries.length).length + 2 : 0);
+    const text = truncate(demote(e), Math.min(ENTRY_CAP, room), fileHint);
+    if (!text) break;
     out.push(text);
     used += text.length + 2;
   }
   const rest = entries.length - out.length;
-  if (rest > 0) out.push(`_+${rest} older in ${fileHint}_`);
+  if (rest > 0) out.push(more(rest));
   return out.join('\n\n');
 }
 
@@ -355,11 +357,13 @@ function contextFiles(project) {
     .map(({ rel, abs }) => ({ rel, text: stripComments(readText(abs)).trim() }));
 }
 
-function statusSection(project, budget) {
+// `sessionId` is the session receiving the context: a resumed session is not told about its
+// own earlier end.
+function statusSection(project, budget, sessionId) {
   const status = readStatus(project);
   const parts = [];
   const last = status['Last session'];
-  if (last) {
+  if (last && !(sessionId && last.meta.session === shortId(sessionId))) {
     const handedOff = /handoff: yes/.test(last.body);
     parts.push(
       handedOff
@@ -402,7 +406,7 @@ function hasProjectInstructions(project) {
 // The context summary injected at session start, built from `context.sections` in order
 // and kept within `context.maxChars`. `agent` adds the instruction files that agent would
 // otherwise not see.
-export function buildContext(project, { maxChars, recent, agent } = {}) {
+export function buildContext(project, { maxChars, recent, agent, sessionId } = {}) {
   requireMemory(project);
   const d = project.relDir;
   const cfg = project.config.context;
@@ -422,7 +426,7 @@ export function buildContext(project, { maxChars, recent, agent } = {}) {
         render: (b) => (latest ? truncate(demote(latest), b, `${d}/handoff.md`) : '_No handoff yet._'),
       };
     },
-    status: () => ({ title: 'Status', render: (b) => statusSection(project, b), optional: true }),
+    status: () => ({ title: 'Status', render: (b) => statusSection(project, b, sessionId), optional: true }),
     project: () => ({
       title: 'Project',
       optional: hasProjectInstructions(project),
@@ -475,18 +479,29 @@ export function buildContext(project, { maxChars, recent, agent } = {}) {
       },
     });
   }
+  // `context.maxChars` is a hard limit. Sections are in priority order: each may use what is
+  // left after keeping a small share for the ones after it, and a section that no longer fits
+  // is left out (with a pointer to the full memory).
   const header = contextHeader(d);
-  let remaining = maxChars - header.length;
+  const omitted = `\n\n_(more in ${d}/ — run \`agent-memory read\`)_`;
+  let remaining = maxChars - header.length - omitted.length - 1;
   const parts = [header];
+  let cut = false;
   sections.forEach((s, i) => {
-    const reserve = (sections.length - i - 1) * 300;
-    const budget = Math.max(200, remaining - reserve - s.title.length - 10);
-    const body = s.render(budget);
-    if (!body && s.optional) return;
-    parts.push(`## ${s.title}\n${body}`);
-    remaining -= body.length + s.title.length + 10;
+    const heading = `\n\n## ${s.title}\n`;
+    const reserve = Math.min((sections.length - i - 1) * 300, Math.floor(remaining / 2));
+    const budget = remaining - reserve - heading.length;
+    const body = budget > 0 ? s.render(budget) : '';
+    const fitted = body && truncate(body, budget);
+    if (!fitted) {
+      if (body || !s.optional) cut = true;
+      return;
+    }
+    const piece = `${heading}${fitted}`;
+    parts.push(piece);
+    remaining -= piece.length;
   });
-  return `${parts.join('\n\n')}\n`;
+  return `${parts.join('')}${cut ? omitted : ''}\n`;
 }
 
 // --- Searching --------------------------------------------------------------------------

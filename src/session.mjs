@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { exists, withLock } from './fsutil.mjs';
 import { fingerprint, gitState } from './git.mjs';
@@ -24,20 +25,34 @@ function touchSession(state, id, agent) {
   return s;
 }
 
+// Status is a local snapshot that changes whenever a session ends, so it does not count as the
+// memory having changed.
+const contextHash = (text) =>
+  crypto
+    .createHash('sha1')
+    .update(text.replace(/\n\n## Status\n[\s\S]*?(?=\n\n## |\n*$)/, ''))
+    .digest('hex')
+    .slice(0, 12);
+
 // Session start: return the context to inject and remember the working-tree baseline so the
 // stop hook can tell "this session changed something" from "the repo was already dirty".
-export function onSessionStart(project, { agent, sessionId }) {
+// A resumed session still has the context it was given earlier, so it only gets it again when
+// the memory changed in the meantime (for example another agent wrote a handoff).
+export function onSessionStart(project, { agent, sessionId, source }) {
   if (!exists(project.memDir)) return '';
-  if (sessionId) {
-    const fp = fingerprint(project.root, project.relDir);
-    withLock(project.memDir, () => {
-      const state = loadState(project);
-      const s = touchSession(state, sessionId, agent);
-      s.startFingerprint ??= fp;
-      saveState(project, state);
-    });
-  }
-  return buildContext(project, { agent });
+  const context = buildContext(project, { agent, sessionId });
+  if (!sessionId) return context;
+  const fp = fingerprint(project.root, project.relDir);
+  const hash = contextHash(context);
+  return withLock(project.memDir, () => {
+    const state = loadState(project);
+    const s = touchSession(state, sessionId, agent);
+    s.startFingerprint ??= fp;
+    const unchanged = source === 'resume' && s.contextHash === hash;
+    s.contextHash = hash;
+    saveState(project, state);
+    return unchanged ? '' : context;
+  });
 }
 
 // Stop: ask the agent (once per working-tree state, rate limited) to update memory when the
@@ -50,10 +65,11 @@ export function onStop(project, { agent, sessionId, alreadyContinued = false }) 
 
   return withLock(project.memDir, () => {
     const state = loadState(project);
-    const isNew = !state.sessions[sessionId];
+    const isNew = !state.sessions[sessionId]?.startFingerprint;
     const s = touchSession(state, sessionId, agent);
     if (isNew) {
-      // Session started before the hooks were installed: take the current state as baseline.
+      // No baseline yet (hooks installed mid-session, or a resumed session whose start hook did
+      // not run): take the current state as the baseline.
       s.startFingerprint = fp;
       saveState(project, state);
       return null;
@@ -95,7 +111,12 @@ export function onSessionEnd(project, { agent, sessionId, reason, final = true }
     ].filter(Boolean);
     const changes = formatChanges(git, 'Uncommitted changes');
     writeStatusSection(project, 'Last session', `> ${meta.join(' · ')}${changes ? `\n\n${changes}` : ''}`);
-    if (sessionId && final) delete state.sessions[sessionId];
+    // Keep only what a later `resume` of this session needs.
+    if (sessionId && final) {
+      const { contextHash: kept } = state.sessions[sessionId] ?? {};
+      if (kept) state.sessions[sessionId] = { contextHash: kept, updatedAt: Date.now() };
+      else delete state.sessions[sessionId];
+    }
     saveState(project, state);
   });
 }

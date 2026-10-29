@@ -97,10 +97,14 @@ export function hasBlock(text) {
   return text.includes(BLOCK_START) && text.includes(BLOCK_END);
 }
 
-// Collapse a body to at most `max` characters on a line boundary.
+// Shorten text to at most `max` characters, including the "truncated" note, preferring a line
+// boundary.
 export function truncate(text, max, hint) {
   if (text.length <= max) return text;
-  const cut = text.slice(0, Math.max(0, max));
+  const note = `\n… (truncated${hint ? ` — see ${hint}` : ''})`;
+  const room = max - note.length;
+  if (room <= 0) return '';
+  const cut = text.slice(0, room);
   const nl = cut.lastIndexOf('\n');
-  return `${nl > max * 0.5 ? cut.slice(0, nl) : cut}\n… (truncated${hint ? ` — see ${hint}` : ''})`;
+  return `${nl > room * 0.5 ? cut.slice(0, nl) : cut}${note}`;
 }

@@ -389,7 +389,7 @@ test('claude stop hook reminds once per change and stays quiet otherwise', () =>
   assert.equal(hook('claude', 'stop', p).out, '', 'handoff covers the current state');
 
   write(dir, { 'src/a.js': '4\n' });
-  assert.match(JSON.parse(hook('claude', 'stop', p).out).hookSpecificOutput.additionalContext, /Before you finish/, 'new changes after the handoff');
+  assert.match(JSON.parse(hook('claude', 'stop', p).out).hookSpecificOutput.additionalContext, /Files changed since the last shared-memory handoff/, 'new changes after the handoff');
 
   config.session.onStop = 'off';
   write(dir, { '.agent-memory.json': config });
@@ -404,7 +404,7 @@ test('stop reminders are rate limited', () => {
   const p = { cwd: dir, session_id: 'sess-2' };
   hook('claude', 'session-start', p);
   write(dir, { 'src/a.js': '2\n' });
-  assert.match(JSON.parse(hook('claude', 'stop', p).out).hookSpecificOutput.additionalContext, /Before you finish/);
+  assert.match(JSON.parse(hook('claude', 'stop', p).out).hookSpecificOutput.additionalContext, /Files changed since the last shared-memory handoff/);
   write(dir, { 'src/a.js': '3\n' });
   assert.equal(hook('claude', 'stop', p).out, '', 'within remindIntervalMinutes');
 });
@@ -458,4 +458,63 @@ test('doctor reports every hook event', () => {
   delete settings.hooks.Stop;
   write(dir, { '.claude/settings.json': settings });
   assert.match(run(dir, ['doctor']).out, /✗ \.claude\/settings\.json Stop hook/);
+});
+
+// --- Token budget -----------------------------------------------------------------------
+
+test('context never exceeds context.maxChars', () => {
+  const dir = tempRepo({ 'CLAUDE.md': `# CLAUDE.md\n\n## Notes\n${'Long instruction line about the renderer. '.repeat(120)}\n` });
+  run(dir, ['install', '--memory-only']);
+  for (let i = 1; i <= 12; i++) {
+    run(dir, ['save', 'decision', `Decision ${i}`, '--body', 'why '.repeat(300)]);
+    run(dir, ['save', 'learning', `Learning ${i}`, '--body', 'detail '.repeat(300)]);
+  }
+  run(dir, ['handoff', '--summary', 'Big handoff', '--notes', 'note '.repeat(800), '--skip-git']);
+  for (const max of [600, 1500, 3000, 8000]) {
+    const r = run(dir, ['read', '--max-chars', String(max)]);
+    assert.ok(r.out.length <= max, `read --max-chars ${max} gave ${r.out.length}`);
+    assert.match(r.out, /^# Shared agent memory/);
+  }
+  const ag = run(os.tmpdir(), ['hook', 'antigravity', 'session-start'], JSON.stringify({ workspacePaths: [dir] }));
+  const context = JSON.parse(ag.out).injectSteps[0].systemMessage.systemMessage;
+  assert.ok(context.length <= 8000, `antigravity context is ${context.length}`);
+  assert.match(context, /Project instructions from CLAUDE\.md/);
+  assert.match(run(dir, ['read', '--max-chars', '600']).out, /more in docs\/memory\/ — run `agent-memory read`/);
+});
+
+test('a resumed session gets the context again only when the memory changed', () => {
+  const dir = tempRepo();
+  run(dir, ['install', '--memory-only']);
+  run(dir, ['handoff', '--summary', 'First handoff', '--skip-git']);
+  const start = (source) => hook('claude', 'session-start', { cwd: dir, session_id: 'resume-1', source });
+
+  assert.match(start('startup').out, /First handoff/);
+  assert.equal(start('resume').out, '', 'unchanged memory: nothing injected twice');
+  assert.match(start('compact').out, /First handoff/, 'compaction drops the context, so it is injected again');
+
+  run(dir, ['handoff', '--summary', 'Handoff from the other agent', '--agent', 'antigravity', '--skip-git']);
+  assert.match(start('resume').out, /Handoff from the other agent/, 'changed memory is injected on resume');
+
+  hook('claude', 'session-end', { cwd: dir, session_id: 'resume-1', reason: 'prompt_input_exit' });
+  assert.equal(start('resume').out, '', 'still known after the session ended');
+});
+
+test('the stop reminder is short and only mentions tests when a test command is set', () => {
+  const dir = tempRepo({ 'src/a.js': '1\n' });
+  run(dir, ['install', '--memory-only']);
+  commitAll(dir);
+  const p = { cwd: dir, session_id: 'short-1' };
+  hook('claude', 'session-start', p);
+  write(dir, { 'src/a.js': '2\n' });
+  const reminder = JSON.parse(hook('claude', 'stop', p).out).hookSpecificOutput.additionalContext;
+  assert.ok(reminder.length < 600, `reminder is ${reminder.length} chars`);
+  assert.match(reminder, /agent-memory handoff --session short-1 --agent claude/);
+  assert.doesNotMatch(reminder, /agent-memory test/);
+
+  const config = readJson(dir, '.agent-memory.json');
+  config.tests.command = 'npm test';
+  config.session.remindIntervalMinutes = 0;
+  write(dir, { '.agent-memory.json': config });
+  write(dir, { 'src/a.js': '3\n' });
+  assert.match(JSON.parse(hook('claude', 'stop', p).out).hookSpecificOutput.additionalContext, /agent-memory test --agent claude.*`npm test`/);
 });
