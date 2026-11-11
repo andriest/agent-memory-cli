@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { exists, readText, withLock, writeAtomic } from '../fsutil.mjs';
 import { mainWorktreeRoot } from '../git.mjs';
-import { formatEntry, normalizeTitle, parseEntries, renderEntry } from '../markdown.mjs';
+import { formatEntry, normalizeTitle, parseEntries, renderEntry, sanitizeBody } from '../markdown.mjs';
 import { FILES, MemoryError, requireMemory, today } from '../memory.mjs';
 import { findSecrets } from '../secrets.mjs';
 import { DECISIONS_TEMPLATE, LEARNINGS_TEMPLATE } from '../templates.mjs';
@@ -170,18 +170,6 @@ function shorten(text, max) {
   return `${cut.slice(0, cut.lastIndexOf(' ') > max * 0.6 ? cut.lastIndexOf(' ') : cut.length).replace(/[,;:.\s]+$/, '')}…`;
 }
 
-// Headings in a memory body would start new entries in our files; demote them to level 3+.
-function demoteHeadings(body) {
-  let inFence = false;
-  return body
-    .split('\n')
-    .map((line) => {
-      if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
-      return !inFence && /^#{1,2}\s/.test(line) ? line.replace(/^#{1,2}/, '###') : line;
-    })
-    .join('\n');
-}
-
 function localDate(iso) {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? today() : today(d);
@@ -222,7 +210,7 @@ export function toEntry(memory, titlesBySlug) {
   if (memory.description && normalizeTitle(memory.description) !== normalizeTitle(title)) {
     body = `_${memory.description.trim()}_\n\n${body}`.trim();
   }
-  body = demoteHeadings(body).replace(/\[\[([^\]\n]+)\]\]/g, (_, slug) => {
+  body = sanitizeBody(body).replace(/\[\[([^\]\n]+)\]\]/g, (_, slug) => {
     const linked = titlesBySlug.get(slug.trim());
     return linked ? `“${linked}”` : `\`${slug.trim()}\``;
   });

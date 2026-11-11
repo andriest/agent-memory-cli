@@ -194,8 +194,9 @@ export function saveEntry(project, { type, title, body = '', tags = [], agent, f
     }
     const base = current.replace(/\s+$/, '');
     writeAtomic(file, `${base}\n\n${text}`);
-    const entries = parseEntries(readText(file));
-    return { file, entry: entries[entries.length - 1] };
+    // Report the entry that was just written: it starts after the existing text and a blank line.
+    const line = base.split(/\r?\n/).length + 2;
+    return { file, entry: parseEntries(readText(file)).find((e) => e.line === line) };
   });
 }
 

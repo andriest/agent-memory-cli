@@ -9,6 +9,7 @@
 
 export const BLOCK_START = '<!-- shared-agent-memory:start -->';
 export const BLOCK_END = '<!-- shared-agent-memory:end -->';
+const FENCE = /^\s*(```|~~~)/;
 
 // Blank out HTML comments but keep their newlines, so line numbers stay correct.
 export function stripComments(text) {
@@ -21,7 +22,7 @@ export function parseEntries(text) {
   let current = null;
   let inFence = false;
   lines.forEach((line, i) => {
-    if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
+    if (FENCE.test(line)) inFence = !inFence;
     const m = inFence ? null : /^##\s+(.+?)\s*$/.exec(line);
     if (m) {
       if (current) entries.push(finishEntry(current));
@@ -58,14 +59,27 @@ export function renderEntry(entry) {
   return entry.body ? `## ${entry.heading}\n${entry.body}` : `## ${entry.heading}`;
 }
 
+// Make free text safe to store inside an entry: `#`/`##` headings outside code fences would
+// start a new entry, so they become `###`, and an unclosed fence (which would hide every later
+// entry from the parser) is closed.
+export function sanitizeBody(body) {
+  let inFence = false;
+  const lines = body.split(/\r?\n/).map((line) => {
+    if (FENCE.test(line)) inFence = !inFence;
+    return !inFence && /^#{1,2}\s/.test(line) ? line.replace(/^#{1,2}/, '###') : line;
+  });
+  if (inFence) lines.push('```');
+  return lines.join('\n');
+}
+
 export function formatEntry({ date, title, meta = {}, body = '' }) {
   const metaLine = Object.entries(meta)
     .filter(([, v]) => v !== undefined && v !== '')
-    .map(([k, v]) => `${k}: ${v}`)
+    .map(([k, v]) => `${k}: ${String(v).replace(/\s+/g, ' ')}`)
     .join(' · ');
-  let out = `## ${date} · ${title.trim()}\n`;
+  let out = `## ${date} · ${title.replace(/\s+/g, ' ').trim()}\n`;
   if (metaLine) out += `> ${metaLine}\n`;
-  if (body.trim()) out += `\n${body.trim()}\n`;
+  if (body.trim()) out += `\n${sanitizeBody(body.trim())}\n`;
   return out;
 }
 

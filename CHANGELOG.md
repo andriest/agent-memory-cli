@@ -6,6 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-11
+
+### Fixed
+
+- A `#` or `##` heading in a `save` body or `handoff --notes` no longer splits the entry in two.
+  Headings outside code fences are written as `###`, so counts, context, duplicate checks and
+  `--session` replacement see one entry ([#1]).
+- `save` reports the entry it just wrote instead of the last section in the file ([#1]).
+- An unclosed code fence in a body is closed, so it can no longer hide every later entry from
+  the parser.
+- Titles and metadata values are kept on one line.
+
+### Added
+
+- `doctor` warns about sections without a date in `decisions.md`, `learnings.md` and `handoff.md`,
+  which older versions could create from a heading inside a body, so they can be merged by hand.
+
 ## [0.6.0] - 2026-10-29
 
 ### Added
@@ -139,7 +156,8 @@ First release.
   files on uninstall.
 - Verified with Claude Code 2.1.312 and Antigravity CLI 1.4.9.
 
-[Unreleased]: https://github.com/andriest/agent-memory-cli/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/andriest/agent-memory-cli/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/andriest/agent-memory-cli/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/andriest/agent-memory-cli/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/andriest/agent-memory-cli/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/andriest/agent-memory-cli/compare/v0.5.0...v0.5.1
@@ -147,3 +165,4 @@ First release.
 [0.4.0]: https://github.com/andriest/agent-memory-cli/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/andriest/agent-memory-cli/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/andriest/agent-memory-cli/releases/tag/v0.2.0
+[#1]: https://github.com/andriest/agent-memory-cli/issues/1

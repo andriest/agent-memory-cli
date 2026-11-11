@@ -245,6 +245,13 @@ const commands = {
     for (const name of expected) {
       line(fs.existsSync(project.file(name)), FILES[name], 'run `agent-memory install`');
     }
+    // Sections without a date are usually a "## " heading that split an entry (before 0.6.1).
+    for (const name of ['decisions', 'learnings', 'handoff']) {
+      const undated = readEntries(project, name).filter((e) => !e.date);
+      if (undated.length) {
+        out(`  ! ${FILES[name]}: ${undated.length} section(s) without a date (line ${undated.map((e) => e.line).join(', ')}); probably part of the entry above — merge them by hand`);
+      }
+    }
     const ignore = readText(path.join(project.memDir, '.gitignore'));
     line(['.state.json', 'status.md'].every((l) => ignore.split(/\r?\n/).includes(l)), '.gitignore keeps local files out of git', 'run `agent-memory install`');
 

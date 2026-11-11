@@ -549,3 +549,47 @@ test('session.onStop can turn the reminder off for one agent only', () => {
   assert.equal(bad.code, 1);
   assert.match(bad.err, /"session\.onStop" must be "remind", "off", or an object mapping claude\/antigravity/);
 });
+
+// --- Issue #1: headings inside a body -------------------------------------------------------
+
+test('a "## " heading in a saved body stays inside its entry (issue #1)', () => {
+  const dir = tempRepo();
+  run(dir, ['install', '--memory-only']);
+  const r = run(dir, ['save', 'decision', 'Use pnpm', '--body', '-'], 'Use pnpm.\n\n## Why\nFaster installs.\n\n# Notes\nNone.\n');
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /Saved to docs\/memory\/decisions\.md:\d+  ## \d{4}-\d{2}-\d{2} · Use pnpm$/m, 'reports the saved entry');
+  const decisions = read(dir, 'docs/memory/decisions.md');
+  assert.equal((decisions.match(/^## /gm) ?? []).length, 1);
+  assert.match(decisions, /^### Why$/m);
+  assert.match(decisions, /^### Notes$/m);
+  assert.match(run(dir, ['read']).out, /Recent decisions \(1 of 1\)/);
+  assert.equal(run(dir, ['save', 'decision', 'Why', '--body', 'x']).code, 0, 'no false duplicate');
+  assert.doesNotMatch(run(dir, ['doctor']).out, /without a date/);
+});
+
+test('an unclosed code fence in a body does not hide later entries', () => {
+  const dir = tempRepo();
+  run(dir, ['install', '--memory-only']);
+  run(dir, ['save', 'learning', 'Fenced', '--body', '-'], '```sh\nmake build\n## not a heading\n');
+  run(dir, ['save', 'learning', 'After the fence', '--body', 'still visible']);
+  const { results } = JSON.parse(run(dir, ['search', 'visible', '--json']).out);
+  assert.equal(results.length, 1);
+  assert.match(read(dir, 'docs/memory/learnings.md'), /## not a heading\n```\n/, 'fence closed, its content untouched');
+});
+
+test('replacing a session handoff whose notes had a heading leaves no orphan (issue #1)', () => {
+  const dir = tempRepo();
+  run(dir, ['install', '--memory-only']);
+  run(dir, ['handoff', '--summary', 'Draft', '--session', 's1', '--notes', '-', '--skip-git'], 'Context.\n\n## Details\nStep A.\n');
+  run(dir, ['handoff', '--summary', 'Final', '--session', 's1', '--skip-git']);
+  const handoff = read(dir, 'docs/memory/handoff.md');
+  assert.deepEqual(handoff.match(/^## .*$/gm), [handoff.match(/^## .* · Final$/m)[0]]);
+  assert.doesNotMatch(handoff, /Details|Step A/);
+});
+
+test('doctor flags sections without a date left by older versions', () => {
+  const dir = tempRepo();
+  run(dir, ['install', '--memory-only']);
+  write(dir, { 'docs/memory/decisions.md': '# Decisions\n\n## 2026-11-01 · Use pnpm\n\nUse pnpm.\n\n## Why\nFaster.\n' });
+  assert.match(run(dir, ['doctor']).out, /! decisions\.md: 1 section\(s\) without a date \(line 7\)/);
+});

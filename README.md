@@ -367,7 +367,8 @@ Notes:
 ## Memory format
 
 Every entry is a level-2 section. The metadata line is optional, so entries written by hand are
-still understood by the tool:
+still understood by the tool. Because `## ` starts an entry, headings inside a body written by the
+CLI are stored as `###` (code fences are left alone):
 
 ```markdown
 ## 2026-10-28 · Use pnpm workspaces
@@ -382,7 +383,7 @@ working tree. Anything that should be shared across machines belongs in a handof
 ## Development
 
 ```sh
-npm test       # node:test, no dependencies (41 tests)
+npm test       # node:test, no dependencies (45 tests)
 ```
 
 Code layout:
