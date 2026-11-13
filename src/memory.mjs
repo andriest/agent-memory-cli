@@ -358,6 +358,16 @@ function contextFiles(project) {
     .map(({ rel, abs }) => ({ rel, text: stripComments(readText(abs)).trim() }));
 }
 
+const testRunPassed = (run) => /^>.*✅ passed/m.test(run.body);
+
+// The latest handoff already records the current test run (its summary is copied in when the
+// handoff is written), so the Status section need not repeat it.
+function latestHandoffHasTestRun(project) {
+  const summary = lastTestSummary(project);
+  const [latest] = readEntries(project, 'handoff');
+  return Boolean(summary && latest?.body.includes(`**Last test run**\n- ${summary}`));
+}
+
 // `sessionId` is the session receiving the context: a resumed session is not told about its
 // own earlier end.
 function statusSection(project, budget, sessionId) {
@@ -372,7 +382,8 @@ function statusSection(project, budget, sessionId) {
         : `⚠ The previous session ended **without a handoff**. Check its uncommitted changes before continuing.\n\n${demote(last)}`,
     );
   }
-  if (status['Last test run']) parts.push(demote(status['Last test run']));
+  const run = status['Last test run'];
+  if (run && !(testRunPassed(run) && latestHandoffHasTestRun(project))) parts.push(demote(run));
   return parts.length ? truncate(parts.join('\n\n'), budget, `${project.relDir}/status.md`) : '';
 }
 

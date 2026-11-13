@@ -333,7 +333,16 @@ test('test records pass/fail with redacted output in status.md and the next hand
 
   run(dir, ['handoff', '--summary', 'With tests', '--skip-git']);
   assert.match(read(dir, 'docs/memory/handoff.md'), /\*\*Last test run\*\*\n- .*✅ passed.*`echo all good`/);
-  assert.match(run(dir, ['read']).out, /## Status\n### Last test run/);
+  assert.match(run(dir, ['read']).out, /\*\*Last test run\*\*\n- .*✅ passed/);
+  assert.doesNotMatch(run(dir, ['read']).out, /### Last test run/, 'passed run already in the handoff is not repeated');
+
+  // A newer run is not in the handoff yet, and a failed one keeps its output.
+  config.tests.command = `${JSON.stringify(process.execPath)} -e "console.log('boom'); process.exit(1)"`;
+  write(dir, { '.agent-memory.json': config });
+  run(dir, ['test']);
+  assert.match(run(dir, ['read']).out, /## Status\n### Last test run\n[\s\S]*boom/);
+  run(dir, ['handoff', '--summary', 'Failing tests', '--skip-git']);
+  assert.match(run(dir, ['read']).out, /### Last test run\n[\s\S]*boom/, 'failed output stays even when the handoff records the run');
 });
 
 // --- Session hooks ----------------------------------------------------------------------

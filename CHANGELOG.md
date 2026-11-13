@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The session-start context no longer repeats a passing test run in Status when the latest
+  handoff already records it. Failed runs still show their output.
+- The stop reminder asks for a handoff only once the user's request is finished. When the agent
+  is mid-task or waiting on the user, it replies in one line instead. The hook cannot tell a
+  session's last turn from the others, so the agent decides. The SessionEnd snapshot still
+  flags sessions that end without a handoff.
+
 ## [0.6.1] - 2026-11-11
 
 ### Fixed

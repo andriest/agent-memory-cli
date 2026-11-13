@@ -176,13 +176,15 @@ status.md
 `;
 
 // Sent back to the agent by the stop hook when the session changed files without a handoff.
+// The hook cannot tell the last turn of a session from any other, so the agent decides whether
+// the work is finished; SessionEnd's status snapshot covers sessions that end without one.
 // Kept short, with one required command: every reminder costs the agent an extra turn.
 export function stopReminder({ dir, agent, session, testCommand }) {
   const extras = [`\`agent-memory save decision|learning "<title>" --body "…" --agent ${agent}\` for a durable decision or gotcha`];
   if (testCommand) extras.push(`\`agent-memory test --agent ${agent}\` if you changed code and have not run \`${testCommand}\``);
-  return `Files changed since the last shared-memory handoff (${dir}/). Before you stop, record this session for the next agent:
+  return `Files changed since the last shared-memory handoff (${dir}/). If the user's request is finished, record this session for the next agent before you stop:
 \`agent-memory handoff --session ${session} --agent ${agent} --summary "<one line>" --done "<item>" --next "<item>"\`
-Only if relevant: ${extras.join('; ')}. If nothing worth recording changed, reply in one line and stop.`;
+Only if relevant: ${extras.join('; ')}. If you are still mid-task, waiting on the user, or nothing worth recording changed, reply in one line and stop.`;
 }
 
 // --- Claude Code slash commands -------------------------------------------------------
